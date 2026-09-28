@@ -17,7 +17,7 @@ from app.services.pdf.pdf_service import PDFService
 from app.services.ppt.ppt_service import PPTService
 from app.services.docx.docx_service import DOCXService
 from app.services.youtube.youtube_service import YouTubeService, YouTubeCaptionError
-from app.services.web.web_service import WebService
+from app.services.web.web_service import WebService, url_key
 from app.services.web.errors import WebPageError
 from app.services.rag.rag_service import RAGService
 from app.services.embedding_service import get_embeddings
@@ -349,6 +349,41 @@ async def upload_youtube(payload: YouTubeUploadRequest, db: Session = Depends(ge
     )
 
 
+def _find_existing_website(db: Session, url: str) -> Optional[Document]:
+    """The saved website document for the same page as `url` (see url_key), if any.
+
+    Compares against each document's final URL and the link originally entered.
+    """
+    key = url_key(url)
+    if not key:
+        return None
+    rows = (
+        db.query(Document.id, Document.filename, Document.source_url, Document.metadata_json)
+        .filter(Document.source_type == "website")
+        .all()
+    )
+    for row in rows:
+        saved = [row.source_url]
+        try:
+            saved.append(json.loads(row.metadata_json or "{}").get("original_url"))
+        except (ValueError, AttributeError):
+            pass
+        if key in {url_key(u) for u in saved if u}:
+            return row
+    return None
+
+
+def _already_imported(row) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "message": f'This page is already in your library as "{row.filename}". '
+                       "To import it again, delete that document first.",
+            "document_id": row.id,
+        },
+    )
+
+
 # Plain def (not async): fetching and extraction block, so FastAPI runs this in a worker thread.
 @router.post("/website")
 def upload_website(payload: WebsiteUploadRequest, db: Session = Depends(get_db)):
@@ -356,9 +391,20 @@ def upload_website(payload: WebsiteUploadRequest, db: Session = Depends(get_db))
     if not url:
         raise HTTPException(status_code=400, detail="Please provide a web page link")
 
+    # Checked before fetching (saves the download) and again after redirects,
+    # so a short or http:// link to a page that's already saved is caught too.
+    existing = _find_existing_website(db, url)
+    if existing:
+        raise _already_imported(existing)
+
     try:
         page = WebService.fetch_page(url)
+        existing = _find_existing_website(db, page.url)
+        if existing:
+            raise _already_imported(existing)
         article = WebService.extract_article(page.html, page.url)
+    except HTTPException:
+        raise
     except WebPageError as e:
         logger.info(f"Website import refused for '{url}': {e.code}")
         raise HTTPException(status_code=e.status_code, detail=e.message)
