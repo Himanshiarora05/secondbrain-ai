@@ -148,6 +148,7 @@ def create_flashcards(
                 doc.source_url,
                 doc.filename,
                 [(c.content, c.start_seconds) for c in chunk_rows],
+                pages=[(c.page_start, c.page_end) for c in chunk_rows],
             )
             cards_data = generate_cited_flashcards([c.content for c in chunk_rows], citations, count=count)
         else:

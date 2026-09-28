@@ -149,6 +149,68 @@ def test_store_without_pages_leaves_them_empty():
     assert "page_start" not in collection.add.call_args.kwargs["metadatas"][0]
 
 
+# ─── Stage 2: citations and flashcards ───
+
+def test_format_pages():
+    from app.services.ai.summary_service import format_pages
+    assert format_pages(12, 12) == "p. 12"
+    assert format_pages(12, None) == "p. 12"
+    assert format_pages(12, 13) == "pp. 12–13"
+    assert format_pages(None, None) is None
+
+
+def test_pdf_chunk_citations_come_from_stored_pages():
+    from app.services.ai.flashcard_service import build_chunk_citations
+    cites = build_chunk_citations("pdf", None, "notes.pdf", [("a", None), ("b", None), ("c", None)],
+                                  pages=[(1, 1), (1, 2), (None, None)])
+    assert cites == [("p. 1", None), ("pp. 1–2", None), None]
+    # A PDF uploaded before page tracking has no pages at all.
+    assert build_chunk_citations("pdf", None, "old.pdf", [("a", None)]) == [None]
+    assert build_chunk_citations("pdf", None, "old.pdf", [("a", None)], pages=[(None, None)]) == [None]
+
+
+def test_pdf_flashcards_cite_pages_through_the_route():
+    import json
+    from app.routes import study
+    from app.services.ai import flashcard_service as fs
+    from app.models.chunk import Chunk
+    from app.models.document import Document
+    from app.models.flashcard import Flashcard
+
+    doc = MagicMock(id=9, content="text", source_type="pdf", source_url=None)
+    doc.filename = "notes.pdf"
+    rows = [MagicMock(content="Cells are units of life.", start_seconds=None, page_start=3, page_end=3),
+            MagicMock(content="ATP is made in mitochondria.", start_seconds=None, page_start=3, page_end=4)]
+    saved = []
+
+    def query(model):
+        q = MagicMock()
+        if model is Document:
+            q.filter.return_value.first.return_value = doc
+        elif model is Chunk:
+            q.filter.return_value.order_by.return_value.all.return_value = rows
+        elif model is Flashcard:
+            q.filter.return_value.order_by.return_value.all.side_effect = lambda: [
+                MagicMock(id=i, question=c.question, answer=c.answer, source_label=c.source_label, source_url=c.source_url)
+                for i, c in enumerate(saved, start=1)]
+        return q
+
+    db = MagicMock()
+    db.query.side_effect = query
+    db.add_all.side_effect = saved.extend
+    reply = MagicMock()
+    reply.choices = [MagicMock(message=MagicMock(content=json.dumps([
+        {"question": "What makes ATP?", "answer": "Mitochondria.", "source": "S1"},
+        {"question": "What are cells?", "answer": "Units of life.", "source": "S0"},
+    ])))]
+    client = MagicMock()
+    client.chat.completions.create.return_value = reply
+    with patch.object(fs, "client", client), patch.object(fs, "CARDS_PER_CALL", 10):
+        result = study.create_flashcards(9, count=2, db=db)
+    labels = {c["question"]: (c["source_label"], c["source_url"]) for c in result["flashcards"]}
+    assert labels == {"What makes ATP?": ("pp. 3–4", None), "What are cells?": ("p. 3", None)}, labels
+
+
 if __name__ == "__main__":
     tests = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for t in tests:

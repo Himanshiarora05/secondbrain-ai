@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from app.services.rag.rag_service import RAGService
-from app.services.ai.summary_service import AIGenerationError, ai_failure, format_timestamp
+from app.services.ai.summary_service import AIGenerationError, ai_failure, format_pages, format_timestamp
 from app.services.youtube.youtube_service import YouTubeService
 
 load_dotenv()
@@ -204,15 +204,19 @@ def build_chunk_citations(
     source_url: Optional[str],
     title: str,
     chunks: List[Tuple[str, Optional[int]]],
+    pages: Optional[List[Tuple[Optional[int], Optional[int]]]] = None,
 ) -> List[Citation]:
     """One citation per chunk, from stored data only.
 
-    `chunks` is [(text, start_seconds), ...] in document order.
+    `chunks` is [(text, start_seconds), ...] in document order; `pages` is
+    [(page_start, page_end), ...] for the same chunks (PDFs).
     - youtube: ("02:05", link to that moment)
     - website: (page title, page URL)
     - pptx:    ("Slide 4" / "Slides 3–4", None), tracking the current slide
                across chunks so a chunk that starts mid-slide is still numbered
-    - pdf/docx and anything else: None (no page information is stored)
+    - pdf:     ("p. 12" / "pp. 12–13", None) from the stored page range;
+               None for PDFs uploaded before pages were recorded
+    - docx and anything else: None (no location is stored)
     """
     if source_type == "youtube" and source_url:
         return [
@@ -220,6 +224,10 @@ def build_chunk_citations(
             if start is not None else None
             for _, start in chunks
         ]
+
+    if source_type == "pdf" and pages:
+        labels = [format_pages(start, end) for start, end in pages]
+        return [(label, None) if label else None for label in labels]
 
     if source_type == "website" and source_url:
         return [(title or source_url, source_url) for _ in chunks]
