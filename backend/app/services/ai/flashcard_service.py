@@ -10,11 +10,12 @@ import math
 import re
 import os
 from typing import List, Dict, Optional, Tuple
+import openai
 from dotenv import load_dotenv
 from openai import OpenAI
 
 from app.services.rag.rag_service import RAGService
-from app.services.ai.summary_service import AIGenerationError, format_timestamp
+from app.services.ai.summary_service import AIGenerationError, ai_failure, format_timestamp
 from app.services.youtube.youtube_service import YouTubeService
 
 load_dotenv()
@@ -126,12 +127,16 @@ STRICT JSON FLASHCARDS:"""
             if cards:
                 return cards
             last_exception = ValueError("LLM returned empty or unparseable flashcards")
+        except openai.APIStatusError as e:
+            if e.status_code in (401, 402, 403):  # key or credit problem: a retry can't help
+                raise ai_failure(e, "generating flashcards") from e
+            last_exception = e
         except Exception as e:
             last_exception = e
-            if attempt == 1:
-                print(f"Error generating flashcards on attempt {attempt}: {e}")
 
-    raise AIGenerationError(f"Failed to generate flashcards: {last_exception}")
+    if isinstance(last_exception, ValueError):  # the model answered, but not with usable cards
+        raise AIGenerationError("The AI returned flashcards in an unexpected format. Please try again.")
+    raise ai_failure(last_exception, "generating flashcards") from last_exception
 
 
 def generate_flashcards(document_text: str, count: int = 10) -> List[Dict[str, str]]:

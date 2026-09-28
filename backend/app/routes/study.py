@@ -155,13 +155,13 @@ def create_flashcards(
     except AIGenerationError as e:
         raise HTTPException(
             status_code=502,
-            detail=f"Flashcard generation failed, your existing flashcards were not changed: {str(e)}",
+            detail=f"{e} Your existing flashcards were not changed.",
         )
 
     if not cards_data:
         raise HTTPException(
             status_code=502,
-            detail="Flashcard generation failed, your existing flashcards were not changed: no cards generated",
+            detail="The AI didn't return any flashcards. Please try again. Your existing flashcards were not changed.",
         )
 
     # Replace existing flashcards for this document only after non-empty return.

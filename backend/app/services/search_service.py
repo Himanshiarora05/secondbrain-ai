@@ -17,6 +17,7 @@ from openai import OpenAI
 from app.database.chroma import get_collection
 from app.services.embedding_service import get_embedding
 from app.services.youtube.youtube_service import YouTubeService
+from app.services.ai.summary_service import ai_failure
 
 load_dotenv()
 
@@ -66,6 +67,11 @@ def search_similar_chunks(query: str, top_k: int = 5):
 
 
 def generate_answer(query: str, context: str) -> str:
+    """AI answer for the query from the retrieved context.
+
+    Raises AIGenerationError with a plain message (used to return "ERROR: ..."
+    as if it were the answer).
+    """
     try:
         response = client.chat.completions.create(
             model="openai/gpt-3.5-turbo",
@@ -84,4 +90,4 @@ def generate_answer(query: str, context: str) -> str:
         return response.choices[0].message.content
 
     except Exception as e:
-        return f"ERROR: {str(e)}"
+        raise ai_failure(e, "answering a search") from e
