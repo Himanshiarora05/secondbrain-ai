@@ -5,6 +5,12 @@
    SecondBrain AI — Global Styles
    ============================================ */
 
+/* Element defaults live in the base layer. Unlayered CSS beats every Tailwind
+   layer, so outside it these rules silently overrode utility classes
+   (`* { padding: 0 }` cancelled every p-/m- class, `a { color: inherit }`
+   every link colour). Only custom classes below stay unlayered. */
+@layer base {
+
 /* ─── Base Reset & Viewport Fix ─── */
 *,
 *::before,
@@ -106,6 +112,8 @@ code {
   border-radius: var(--radius-sm);
   color: var(--accent-primary);
 }
+
+} /* end @layer base */
 
 /* ─── Utility Classes ─── */
 .gradient-text {
