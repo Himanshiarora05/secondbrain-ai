@@ -79,6 +79,24 @@ NAV_ONLY_HTML = b"""<!doctype html><html><head><title>Links</title></head><body>
 <nav><a href="/a">Home</a> <a href="/b">Blog</a> <a href="/c">Contact</a></nav>
 <footer>Copyright 2026</footer></body></html>"""
 
+WIKI_HTML = b"""<!doctype html><html><head><title>Mitochondrial matrix - Wikipedia</title></head>
+<body><div id="mw-content-text"><div class="mw-parser-output">
+<p>The mitochondrial matrix is the space enclosed by the inner membrane of the mitochondrion.<sup id="cite_ref-1" class="reference"><a href="#cite_note-1">[1]</a></sup> It contains mitochondrial DNA, ribosomes, soluble enzymes, small organic molecules, nucleotide cofactors and inorganic ions.<sup class="reference"><a href="#cite_note-2">[2]</a></sup></p>
+<p>The enzymes in the matrix drive the citric acid cycle, oxidative phosphorylation, pyruvate oxidation and the beta oxidation of fatty acids, which together supply most of the cell's ATP.<sup class="reference"><a href="#cite_note-3">[3]</a></sup></p>
+<p>The matrix pH is about 7.8, higher than the intermembrane space, because protons are pumped out across the inner membrane by the electron transport chain.</p>
+<h2 id="References">References</h2>
+<div class="reflist"><ol class="references">
+<li id="cite_note-1">REFLIST-XYZ Alberts B (2002). Molecular Biology of the Cell. Garland Science. ISBN 0-8153-3218-1.</li>
+<li id="cite_note-2">REFLIST-XYZ Voet D, Voet JG (2011). Biochemistry. Wiley. doi:10.1000/xyz. PMID 12345.</li>
+<li id="cite_note-3">REFLIST-XYZ Grivell LA, Pel HJ (1994). Protein synthesis in mitochondria. Mol. Biol. Rep. 19 (3): 183-194.</li>
+</ol></div>
+<div class="navbox"><table><tr><td>NAVBOX-XYZ Cell anatomy: Nucleus, Mitochondrion, Ribosome, Golgi apparatus</td></tr></table></div>
+</div></div></body></html>"""
+
+JS_NOTICE_HTML = b"""<!doctype html><html><head><title>Flowchart Maker and Online Diagram Software</title></head>
+<body><div class="geBlock"><p>DiagramApp is free online diagram software. You can use it as a flowchart maker, network diagram software, to create UML online, as an ER diagram tool, to design database schema, to build BPMN online, as a circuit diagram maker, and more.</p>
+<p>Please ensure JavaScript is enabled.</p></div></body></html>"""
+
 CHALLENGE_HTML = b"""<!doctype html><html><head><title>Just a moment...</title></head>
 <body><div id="challenge"><script src="https://challenges.cloudflare.com/turnstile/v0/api.js"></script></div></body></html>"""
 
@@ -383,6 +401,29 @@ def test_title_falls_back_to_url():
     ).replace(b"<h1>Photosynthesis Explained</h1>", b"")
     article = WebService.extract_article(html, "https://bio.example.com/notes/photo/")
     assert article.title == "bio.example.com/notes/photo", article.title
+
+
+def test_reference_lists_footnotes_and_navboxes_are_dropped():
+    article = WebService.extract_article(WIKI_HTML, "https://en.wikipedia.org/wiki/Mitochondrial_matrix")
+    assert "inner membrane of the mitochondrion" in article.text
+    assert "matrix pH is about 7.8" in article.text
+    for junk in ("REFLIST-XYZ", "NAVBOX-XYZ", "[1]", "[2]", "[3]", "PMID"):
+        assert junk not in article.text, junk
+
+
+def test_short_page_asking_for_javascript_is_javascript_required():
+    expect_error("javascript_required", WebService.extract_article, JS_NOTICE_HTML, "https://app.example.com/")
+
+
+def test_long_article_mentioning_javascript_is_kept():
+    paragraphs = "".join(
+        f"<p>Lesson {i}: to follow the interactive examples in this tutorial, enable JavaScript in your "
+        f"browser settings and reload the page so that the code editor and output panel appear.</p>"
+        for i in range(12)
+    )
+    html = f"<html><head><title>Intro to the DOM</title></head><body><article>{paragraphs}</article></body></html>"
+    article = WebService.extract_article(html.encode(), "https://docs.example.com/dom")
+    assert len(article.text) > 1000 and "enable JavaScript" in article.text
 
 
 def test_unreadable_pages_get_specific_errors():
