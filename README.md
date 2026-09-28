@@ -141,6 +141,7 @@ Only these are safe to run anywhere: they're fully offline (network, database, a
 - `test_office_formats.py`
 - `test_flashcard_citations.py`
 - `test_concurrent_generation.py`
+- `test_youtube_duplicates.py`
 
 The other scripts run against your **real** database, vector index, and OpenRouter account, and some delete data. Read a script before running it.
 

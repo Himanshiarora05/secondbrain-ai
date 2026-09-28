@@ -145,6 +145,7 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
       onUploadSuccess()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to import YouTube video')
+      setDuplicate(err instanceof DuplicateSourceError ? { message: err.message, documentId: err.documentId } : null)
     } finally {
       isUploadingRef.current = false
       setIsUploading(false)
