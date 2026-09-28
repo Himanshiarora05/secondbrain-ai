@@ -17,5 +17,9 @@ class Chunk(Base):
     # Python, which doesn't scale. Chroma now owns the vector index.
     chroma_id = Column(String, unique=True, index=True)
     start_seconds = Column(Integer, nullable=True)
+    # PDF only: physical pages the chunk's text came from (equal for a one-page
+    # chunk). Null for other sources and for PDFs uploaded before page tracking.
+    page_start = Column(Integer, nullable=True)
+    page_end = Column(Integer, nullable=True)
 
     document = relationship("Document", back_populates="chunks")
