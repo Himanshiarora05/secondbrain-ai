@@ -25,6 +25,14 @@ export function SourceCard({ source, index }: SourceCardProps) {
       <span className="text-sm text-[var(--text-secondary)] group-hover:text-white truncate max-w-[140px]" title={source.document}>
         {source.document}
       </span>
+      {source.location && (
+        <span
+          className="flex-shrink-0 text-[11px] font-mono text-[var(--text-secondary)] px-1.5 py-0.5 rounded bg-white/5 border border-white/10"
+          title="Where in the source this match is"
+        >
+          {source.location}
+        </span>
+      )}
 
       {source.youtube_timestamp_url && (
         <a
