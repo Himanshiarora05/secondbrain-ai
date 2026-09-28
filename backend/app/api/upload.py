@@ -309,6 +309,11 @@ async def upload_youtube(payload: YouTubeUploadRequest, db: Session = Depends(ge
     if not url:
         raise HTTPException(status_code=400, detail="Please provide a valid YouTube URL")
 
+    # Same video = same video ID, whatever the link form (youtu.be, shorts, &t=, playlist...).
+    existing = _find_existing_youtube(db, YouTubeService.extract_video_id(url))
+    if existing:
+        raise _already_imported(existing, "video")
+
     try:
         video_id, segments = YouTubeService.fetch_transcript(url)
     except ValueError as e:
@@ -373,11 +378,28 @@ def _find_existing_website(db: Session, url: str) -> Optional[Document]:
     return None
 
 
-def _already_imported(row) -> HTTPException:
+def _find_existing_youtube(db: Session, video_id: Optional[str]) -> Optional[Document]:
+    """The saved YouTube document for this video ID, if any (oldest first)."""
+    if not video_id:
+        return None
+    rows = (
+        db.query(Document.id, Document.filename, Document.source_url)
+        .filter(Document.source_type == "youtube")
+        .order_by(Document.id.asc())
+        .all()
+    )
+    for row in rows:
+        if row.source_url and YouTubeService.extract_video_id(row.source_url) == video_id:
+            return row
+    return None
+
+
+def _already_imported(row, kind: str = "page") -> HTTPException:
+    """409 for a source that's already saved; detail carries the document to open instead."""
     return HTTPException(
         status_code=409,
         detail={
-            "message": f'This page is already in your library as "{row.filename}". '
+            "message": f'This {kind} is already in your library as "{row.filename}". '
                        "To import it again, delete that document first.",
             "document_id": row.id,
         },

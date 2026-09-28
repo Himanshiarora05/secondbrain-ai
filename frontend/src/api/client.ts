@@ -112,7 +112,7 @@ export async function uploadYouTube(
 
   if (!response.ok) {
     const errData = await response.json().catch(() => ({}))
-    throw new Error(errData.detail || `YouTube import failed: ${response.status}`)
+    throw importError(errData.detail, `YouTube import failed: ${response.status}`)
   }
 
   return response.json()
@@ -134,15 +134,20 @@ export async function uploadWebsite(
 
   if (!response.ok) {
     const errData = await response.json().catch(() => ({}))
-    const detail = errData.detail
-    // 409: the page is already saved; detail is { message, document_id }.
-    if (detail && typeof detail === 'object') {
-      throw new DuplicateSourceError(detail.message, detail.document_id)
-    }
-    throw new Error(detail || `Website import failed: ${response.status}`)
+    throw importError(errData.detail, `Website import failed: ${response.status}`)
   }
 
   return response.json()
+}
+
+// Link imports answer 409 with detail { message, document_id } when the page or
+// video is already saved; every other error detail is a plain string.
+function importError(detail: unknown, fallback: string): Error {
+  if (detail && typeof detail === 'object' && 'document_id' in detail) {
+    const d = detail as { message: string; document_id: number }
+    return new DuplicateSourceError(d.message, d.document_id)
+  }
+  return new Error(typeof detail === 'string' && detail ? detail : fallback)
 }
 
 export class DuplicateSourceError extends Error {
