@@ -6,9 +6,11 @@ For documents longer than ~6000 characters, uses a chunk-and-map-reduce approach
 to avoid context overflow and provide a coherent, high-yield summary.
 """
 
+import logging
 import os
 import re
 from typing import List, Tuple
+import openai
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -17,10 +19,44 @@ from app.services.youtube.youtube_service import YouTubeService
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
 
 class AIGenerationError(Exception):
-    """Raised when AI generation fails via OpenAI / OpenRouter."""
+    """Raised when AI generation fails via OpenAI / OpenRouter.
+
+    str() is a plain message that is safe to show to the user; the raw error
+    is chained as __cause__ and logged where it is raised.
+    """
     pass
+
+
+_AI_STATUS_MESSAGES = {
+    401: "The AI service rejected the API key. Check OPENROUTER_API_KEY in backend/.env.",
+    402: "The AI service is out of credits. Add credits at openrouter.ai to generate summaries, flashcards and answers.",
+    403: "The AI service refused this request. The API key may not have access to this model.",
+    429: "The AI service is busy right now (rate limit reached). Please wait a minute and try again.",
+}
+
+
+def ai_error_message(exc: BaseException) -> str:
+    """Turn an OpenAI/OpenRouter failure into a plain message for the user."""
+    if isinstance(exc, openai.APITimeoutError):
+        return "The AI service took too long to respond. Please try again."
+    if isinstance(exc, openai.APIConnectionError):
+        return "Could not reach the AI service. Check your internet connection and try again."
+    if isinstance(exc, openai.APIStatusError):
+        if exc.status_code in _AI_STATUS_MESSAGES:
+            return _AI_STATUS_MESSAGES[exc.status_code]
+        if exc.status_code >= 500:
+            return "The AI service is having problems right now. Please try again in a few minutes."
+    return "The AI service couldn't complete this request. Please try again."
+
+
+def ai_failure(exc: BaseException, what: str) -> AIGenerationError:
+    """Log the raw error and return an AIGenerationError with the plain message."""
+    logger.warning(f"AI call failed while {what}: {exc}")
+    return AIGenerationError(ai_error_message(exc))
 
 
 client = OpenAI(
@@ -54,7 +90,7 @@ Summary Notes:"""
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        raise AIGenerationError(f"Failed to summarize a section: {e}") from e
+        raise ai_failure(e, "summarizing a section") from e
 
 
 def generate_summary(document_text: str) -> str:
@@ -119,7 +155,7 @@ Exam Revision Summary:"""
     except AIGenerationError:
         raise
     except Exception as e:
-        raise AIGenerationError(f"Failed to generate summary: {str(e)}") from e
+        raise ai_failure(e, "generating a summary") from e
 
 
 def append_source_link(summary: str, title: str, url: str) -> str:
@@ -190,7 +226,7 @@ def _summarize_labelled_batch(labelled_text: str) -> str:
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        raise AIGenerationError(f"Failed to summarize a section: {e}") from e
+        raise ai_failure(e, "summarizing a section") from e
 
 
 def generate_youtube_summary(chunks: List[Tuple[int, str]], source_url: str) -> str:

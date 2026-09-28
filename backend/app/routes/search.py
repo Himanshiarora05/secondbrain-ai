@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from app.services.search_service import search_similar_chunks, generate_answer
+from app.services.ai.summary_service import AIGenerationError
 
 router = APIRouter(prefix="/api/v1", tags=["Search"])
 
@@ -15,7 +16,10 @@ def search(query: str = Query(...)):
     context = "\n\n".join([r[1] for r in results])
 
     # 🔹 Step 3: Generate AI answer
-    answer = generate_answer(query, context)
+    try:
+        answer = generate_answer(query, context)
+    except AIGenerationError as e:
+        raise HTTPException(status_code=502, detail=str(e))
 
     # 🔹 Step 4: Return clean response
     return {

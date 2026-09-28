@@ -24,7 +24,8 @@ export async function searchSecondBrain(
   )
 
   if (!response.ok) {
-    throw new Error(`Search failed: ${response.status}`)
+    const errData = await response.json().catch(() => ({}))
+    throw new Error(typeof errData.detail === 'string' ? errData.detail : `Search failed: ${response.status}`)
   }
 
   return response.json()
