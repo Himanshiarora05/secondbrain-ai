@@ -13,6 +13,8 @@ import {
   FileText,
   FileEdit,
   Video,
+  Globe,
+  ExternalLink,
 } from 'lucide-react'
 import { getDocuments, getSummary, generateSummary } from '../api/client'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
@@ -135,6 +137,12 @@ export function SummaryPage() {
           label: 'YOUTUBE',
           style: 'text-[#F87171] bg-[rgba(248,113,113,0.2)] border border-[rgba(248,113,113,0.3)]',
         }
+      case 'website':
+        return {
+          icon: <Globe size={14} className="text-[#22D3EE]" />,
+          label: 'WEB',
+          style: 'text-[#22D3EE] bg-[rgba(34,211,238,0.2)] border border-[rgba(34,211,238,0.3)]',
+        }
       case 'pdf':
       default:
         return {
@@ -183,6 +191,18 @@ export function SummaryPage() {
               <p className="text-xs text-[#A1A1AA] mt-1 font-mono">
                 {document.total_chunks} chunks indexed
               </p>
+            )}
+            {document?.source_type === 'website' && document.source_url && (
+              <a
+                href={document.source_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 mt-2 text-xs font-medium text-[#22D3EE] hover:text-[#67E8F9] hover:underline transition-colors"
+                title={document.source_url}
+              >
+                <span>Open original page</span>
+                <ExternalLink size={12} />
+              </a>
             )}
           </div>
         </div>

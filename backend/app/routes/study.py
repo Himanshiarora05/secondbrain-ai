@@ -7,7 +7,12 @@ from app.models.chunk import Chunk
 from app.models.document import Document
 from app.models.summary import Summary
 from app.models.flashcard import Flashcard
-from app.services.ai.summary_service import generate_summary, generate_youtube_summary, AIGenerationError
+from app.services.ai.summary_service import (
+    generate_summary,
+    generate_youtube_summary,
+    append_source_link,
+    AIGenerationError,
+)
 from app.services.ai.flashcard_service import generate_flashcards
 
 router = APIRouter(prefix="/api/v1/documents", tags=["Study"])
@@ -50,6 +55,8 @@ def create_or_regenerate_summary(
             summary_text = generate_youtube_summary(timed_chunks, doc.source_url)
         else:
             summary_text = generate_summary(doc.content)
+            if doc.source_type == "website" and doc.source_url:
+                summary_text = append_source_link(summary_text, doc.filename, doc.source_url)
     except AIGenerationError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
