@@ -77,15 +77,18 @@ export function DocumentCard({
       style={{
         background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.015) 100%)',
       }}
-      className="group flex flex-col sm:flex-row sm:items-center justify-between p-6 rounded-2xl backdrop-blur-xl border border-[rgba(255,255,255,0.08)] hover:border-[rgba(59,130,246,0.35)] hover:shadow-[0_0_28px_rgba(59,130,246,0.18)] transition-all duration-300 cursor-pointer gap-4 relative overflow-hidden"
+      className="group @container p-6 rounded-2xl backdrop-blur-xl border border-[rgba(255,255,255,0.08)] hover:border-[rgba(59,130,246,0.35)] hover:shadow-[0_0_28px_rgba(59,130,246,0.18)] transition-all duration-300 cursor-pointer relative overflow-hidden"
     >
+      {/* Layout follows the card's own width, not the window's: in the two-column
+          library a card is ~480px wide, and buttons beside the title left it ~80px. */}
+      <div className="flex flex-col @2xl:flex-row @2xl:items-center justify-between gap-4">
       <div className="flex items-center gap-4 min-w-0">
         <div className={`w-12 h-12 rounded-2xl ${bgColor} border border-[rgba(255,255,255,0.05)] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-all duration-200`}>
           {icon}
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h4
-            className="text-sm font-semibold text-white truncate max-w-[200px] sm:max-w-[320px] md:max-w-[420px] group-hover:text-[#93C5FD] transition-colors duration-200"
+            className="text-sm font-semibold text-white truncate group-hover:text-[#93C5FD] transition-colors duration-200"
             title={document.filename}
           >
             {document.filename}
@@ -111,7 +114,7 @@ export function DocumentCard({
         </div>
       </div>
 
-      <div className="flex items-center gap-2 sm:self-center self-end" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center gap-2 self-end @2xl:self-center" onClick={(e) => e.stopPropagation()}>
         {onOpenSummary && (
           <button
             onClick={() => onOpenSummary(document)}
@@ -144,6 +147,7 @@ export function DocumentCard({
             <Trash2 size={13} />
           </button>
         )}
+      </div>
       </div>
     </div>
   )
