@@ -16,6 +16,7 @@ from openai import OpenAI
 
 from app.database.chroma import get_collection
 from app.services.embedding_service import get_embedding
+from app.services.youtube.youtube_service import YouTubeService
 
 load_dotenv()
 
@@ -52,17 +53,9 @@ def search_similar_chunks(query: str, top_k: int = 5):
         youtube_timestamp_url = None
 
         if source_type == "youtube":
-            source_url = meta.get("source_url", "")
-            start_seconds = meta.get("start_seconds")
-            if source_url:
-                if start_seconds is not None and start_seconds >= 0:
-                    sep = "&" if "?" in source_url else "?"
-                    if "youtu.be" in source_url:
-                        youtube_timestamp_url = f"{source_url}{sep}t={start_seconds}"
-                    else:
-                        youtube_timestamp_url = f"{source_url}{sep}t={start_seconds}s"
-                else:
-                    youtube_timestamp_url = source_url
+            youtube_timestamp_url = YouTubeService.generate_timestamp_url(
+                meta.get("source_url", ""), meta.get("start_seconds")
+            )
 
         scored_results.append((float(similarity), content, doc_name, youtube_timestamp_url))
 

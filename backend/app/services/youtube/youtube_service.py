@@ -8,7 +8,7 @@ and tracks each chunk's start timestamp.
 
 import re
 from typing import List, Dict, Tuple, Optional
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, parse_qsl, urlencode, urlunparse
 
 # Written against youtube-transcript-api==1.2.4
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -174,9 +174,10 @@ class YouTubeService:
         if start_seconds is None or start_seconds < 0:
             return source_url
 
-        if "youtu.be" in source_url:
-            sep = "&" if "?" in source_url else "?"
-            return f"{source_url}{sep}t={start_seconds}"
-        else:
-            sep = "&" if "?" in source_url else "?"
-            return f"{source_url}{sep}t={start_seconds}s"
+        # Drop any t= already in the saved URL (e.g. a link copied mid-video),
+        # otherwise the result ends up with two conflicting t params.
+        parsed = urlparse(source_url)
+        query = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True) if k != "t"]
+        t_value = str(start_seconds) if "youtu.be" in parsed.netloc else f"{start_seconds}s"
+        query.append(("t", t_value))
+        return urlunparse(parsed._replace(query=urlencode(query)))
