@@ -349,6 +349,115 @@ def test_search_matches_carry_a_location():
     assert [m["location"] for m in response["top_matches"]] == ["pp. 3–4", None, "00:46"]
 
 
+# ─── Stage 5: re-index script ───
+
+def _reindex_module():
+    import importlib.util
+    path = Path(__file__).resolve().parent.parent / "scripts" / "reindex_pdf_pages.py"
+    spec = importlib.util.spec_from_file_location("reindex_pdf_pages", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _old_chunks(n, pages=None):
+    return [MagicMock(id=i, chroma_id=f"7-{i}", page_start=pages, page_end=pages) for i in range(n)]
+
+
+def _db_with_chunks(chunks):
+    from app.models.chunk import Chunk
+    db = MagicMock()
+    q = MagicMock()
+    q.filter.return_value.order_by.return_value.all.return_value = chunks
+    q.filter.return_value.all.return_value = chunks
+    db.query.side_effect = lambda model: q if model is Chunk else MagicMock()
+    return db, q
+
+
+def _pdf_doc(file_id="f7"):
+    doc = MagicMock(id=7, file_id=file_id)
+    doc.filename = "old.pdf"
+    return doc
+
+
+def test_reindex_plan_skips_or_reindexes():
+    r = _reindex_module()
+    uploads = Path(tempfile.mkdtemp(prefix="sb-test-uploads-"))
+    (uploads / "f7.pdf").write_bytes(make_pdf([sentences("P1", 6), sentences("P2", 6)]))
+
+    db, _ = _db_with_chunks(_old_chunks(3, pages=2))
+    report, new = r.plan_document(db, _pdf_doc(), upload_dir=uploads)
+    assert (report["action"], new) == ("skip", None) and "already" in report["reason"]
+
+    db, _ = _db_with_chunks(_old_chunks(3))
+    report, new = r.plan_document(db, _pdf_doc("missing"), upload_dir=uploads)
+    assert report["action"] == "skip" and "file missing" in report["reason"]
+
+    report, new = r.plan_document(db, _pdf_doc(), upload_dir=uploads)
+    assert report["action"] == "reindex" and report["old_chunks"] == 3 and report["pages"] == 2
+    assert new and new[0]["page_start"] == 1 and new[-1]["page_end"] == 2
+
+    db, _ = _db_with_chunks(_old_chunks(3, pages=2))
+    report, _ = r.plan_document(db, _pdf_doc(), force=True, upload_dir=uploads)
+    assert report["action"] == "reindex"
+
+
+NEW = [{"text": "a", "page_start": 1, "page_end": 1}, {"text": "b", "page_start": 1, "page_end": 2}]
+
+
+def test_reindex_apply_swaps_chunks_and_vectors():
+    r = _reindex_module()
+    db, q = _db_with_chunks(_old_chunks(3))
+    added = []
+    db.add_all.side_effect = added.extend
+    collection = MagicMock()
+    collection.get.return_value = {"ids": ["7-0"], "embeddings": [[1.0]], "documents": ["x"], "metadatas": [{}]}
+    r.apply_document(db, collection, _pdf_doc(), NEW, embed=lambda texts: [[0.0]] * len(texts))
+    q.filter.return_value.delete.assert_called_once()
+    assert [(c.content, c.page_start, c.page_end, c.chroma_id) for c in added] == [("a", 1, 1, "7-0"), ("b", 1, 2, "7-1")]
+    collection.delete.assert_called_once_with(ids=["7-0", "7-1", "7-2"])
+    kw = collection.add.call_args.kwargs
+    assert kw["ids"] == ["7-0", "7-1"] and [(m["page_start"], m["page_end"]) for m in kw["metadatas"]] == [(1, 1), (1, 2)]
+    db.commit.assert_called_once()
+    db.rollback.assert_not_called()
+
+
+def test_reindex_restores_everything_if_chroma_fails():
+    r = _reindex_module()
+    db, _ = _db_with_chunks(_old_chunks(2))
+    collection = MagicMock()
+    backup = {"ids": ["7-0", "7-1"], "embeddings": [[1.0], [2.0]], "documents": ["x", "y"], "metadatas": [{}, {}]}
+    collection.get.return_value = backup
+    collection.add.side_effect = [RuntimeError("chroma down"), None]  # new vectors fail, restore works
+    try:
+        r.apply_document(db, collection, _pdf_doc(), NEW, embed=lambda texts: [[0.0]] * len(texts))
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("the failure should be reported")
+    db.rollback.assert_called_once()
+    db.commit.assert_not_called()
+    restored = collection.add.call_args_list[-1].kwargs
+    assert restored["ids"] == backup["ids"] and restored["embeddings"] == backup["embeddings"]
+
+
+def test_reindex_embedding_failure_changes_nothing():
+    r = _reindex_module()
+    db, q = _db_with_chunks(_old_chunks(2))
+    collection = MagicMock()
+
+    def embed(_texts):
+        raise RuntimeError("model unavailable")
+
+    try:
+        r.apply_document(db, collection, _pdf_doc(), NEW, embed=embed)
+    except RuntimeError:
+        pass
+    q.filter.return_value.delete.assert_not_called()
+    collection.delete.assert_not_called()
+    collection.add.assert_not_called()
+
+
 if __name__ == "__main__":
     tests = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for t in tests:
