@@ -254,7 +254,22 @@ export function SummaryPage() {
               </div>
             )}
             <div className="prose prose-invert prose-headings:text-white prose-headings:font-bold prose-h1:text-2xl prose-h2:text-xl prose-h3:text-lg prose-p:text-[#D1D5DB] prose-p:leading-relaxed prose-li:text-[#A1A1AA] prose-strong:text-white max-w-none text-sm space-y-4">
-              <ReactMarkdown>{summary}</ReactMarkdown>
+              <ReactMarkdown
+                components={{
+                  // YouTube summaries cite [mm:ss] links into the video; open them
+                  // in a new tab so the summary stays where the user left it.
+                  a: ({ node: _node, ...props }) => (
+                    <a
+                      {...props}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono text-xs text-[#93C5FD] hover:text-[#BFDBFE] underline underline-offset-2 whitespace-nowrap"
+                    />
+                  ),
+                }}
+              >
+                {summary}
+              </ReactMarkdown>
             </div>
           </div>
         ) : (

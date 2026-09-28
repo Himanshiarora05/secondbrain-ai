@@ -3,10 +3,11 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from app.database.db import get_db
+from app.models.chunk import Chunk
 from app.models.document import Document
 from app.models.summary import Summary
 from app.models.flashcard import Flashcard
-from app.services.ai.summary_service import generate_summary, AIGenerationError
+from app.services.ai.summary_service import generate_summary, generate_youtube_summary, AIGenerationError
 from app.services.ai.flashcard_service import generate_flashcards
 
 router = APIRouter(prefix="/api/v1/documents", tags=["Study"])
@@ -33,8 +34,22 @@ def create_or_regenerate_summary(
     if not doc.content or not doc.content.strip():
         raise HTTPException(status_code=400, detail="Document has no content to summarize")
 
+    timed_chunks = []
+    if doc.source_type == "youtube" and doc.source_url:
+        timed_chunks = [
+            (c.start_seconds, c.content)
+            for c in db.query(Chunk)
+            .filter(Chunk.document_id == doc.id, Chunk.start_seconds.isnot(None))
+            .order_by(Chunk.start_seconds.asc(), Chunk.id.asc())
+            .all()
+            if c.content and c.content.strip()
+        ]
+
     try:
-        summary_text = generate_summary(doc.content)
+        if timed_chunks:
+            summary_text = generate_youtube_summary(timed_chunks, doc.source_url)
+        else:
+            summary_text = generate_summary(doc.content)
     except AIGenerationError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
