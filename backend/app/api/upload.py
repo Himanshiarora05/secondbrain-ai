@@ -3,7 +3,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from pydantic import BaseModel, HttpUrl
@@ -71,6 +71,7 @@ def _store_document_and_chunks(
     source_url: Optional[str] = None,
     metadata_json: Optional[str] = None,
     chunk_start_seconds: Optional[List[int]] = None,
+    chunk_pages: Optional[List[Tuple[int, int]]] = None,
 ) -> dict:
     """Shared helper to persist Document and Chunks to PostgreSQL and Chroma."""
     try:
@@ -105,12 +106,15 @@ def _store_document_and_chunks(
 
         for i, chunk_text in enumerate(chunks):
             start_sec = chunk_start_seconds[i] if chunk_start_seconds and i < len(chunk_start_seconds) else None
+            page_start, page_end = chunk_pages[i] if chunk_pages and i < len(chunk_pages) else (None, None)
             db_chunks.append(
                 Chunk(
                     document_id=doc.id,
                     content=chunk_text,
                     chroma_id=chroma_ids[i],
                     start_seconds=start_sec,
+                    page_start=page_start,
+                    page_end=page_end,
                 )
             )
             meta = {
@@ -123,6 +127,9 @@ def _store_document_and_chunks(
                 meta["source_url"] = source_url
             if start_sec is not None:
                 meta["start_seconds"] = start_sec
+            if page_start is not None:
+                meta["page_start"] = page_start
+                meta["page_end"] = page_end
 
             chroma_metadatas.append(meta)
 
@@ -177,15 +184,16 @@ async def upload_pdf(file: UploadFile = File(...), db: Session = Depends(get_db)
         f.write(content)
 
     try:
-        text = PDFService.extract_text(str(file_path))
+        pages = PDFService.extract_pages(str(file_path))
     except Exception as e:
         logger.error(f"Failed to extract PDF text from '{file.filename}': {e}", exc_info=True)
         raise HTTPException(status_code=400, detail="Could not extract text from this PDF file, please try another file")
 
+    text = "".join(pages)
     if not text.strip():
         raise HTTPException(status_code=400, detail="No readable text found in this PDF file")
 
-    chunks = RAGService.chunk_text(text)
+    chunks = RAGService.chunk_pages(pages)
     if not chunks:
         raise HTTPException(status_code=400, detail="No usable text chunks after processing")
 
@@ -194,8 +202,9 @@ async def upload_pdf(file: UploadFile = File(...), db: Session = Depends(get_db)
         file_id=file_id,
         filename=file.filename,
         content=text,
-        chunks=chunks,
+        chunks=[c["text"] for c in chunks],
         source_type="pdf",
+        chunk_pages=[(c["page_start"], c["page_end"]) for c in chunks],
     )
 
 
