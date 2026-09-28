@@ -167,14 +167,16 @@ def append_source_link(summary: str, title: str, url: str) -> str:
 
 # ─── YouTube summaries with timestamp citations ───
 #
-# The model never writes times itself. Each transcript chunk is labelled
-# [S0], [S1], ... and the model cites those labels; link_citations() then
-# swaps each label for a [mm:ss](url&t=...) link built from that chunk's
-# stored start_seconds. A label the model invents that matches no chunk is
-# dropped, so every link that survives points at a real moment in the video.
+# The model never writes times, pages or slide numbers itself. Each stored
+# chunk is labelled [S0], [S1], ... and the model cites those labels;
+# replace_labels() then swaps each label for that chunk's citation, built from
+# stored data: a [mm:ss](url&t=...) link for YouTube, "(p. 12)" for PDFs,
+# "(Slide 4)" for PowerPoint. A label the model invents that matches no chunk
+# (or a chunk with no citation) is dropped, so every citation that survives
+# points at a real place in the source.
 
 # One match = a run of labels like "[S3]", "[S3, S7]" or "[S3][S7]", so the
-# links for a run are joined (and de-duplicated) together.
+# citations for a run are joined (and de-duplicated) together.
 _LABEL = r"\[\s*S\d+(?:\s*,\s*S\d+)*\s*\]"
 _CITATION_RE = re.compile(rf"{_LABEL}(?:[ \t]*{_LABEL})*")
 
@@ -182,8 +184,12 @@ CITATION_RULE = (
     "The material is split into sections labelled [S0], [S1], [S2], ... "
     "End EVERY bullet point with the label(s) of the section(s) it came from, "
     "exactly as written, e.g. '- Photosynthesis happens in chloroplasts [S3]' "
-    "or '... [S3][S7]'. Never write times or timestamps yourself; use only the labels."
+    "or '... [S3][S7]'. Never write times, timestamps, page numbers or slide numbers yourself; "
+    "use only the labels."
 )
+
+# (label, url) for a chunk: url is None for citations that aren't links (pages, slides).
+Citation = Optional[Tuple[str, Optional[str]]]
 
 
 def format_timestamp(seconds: int) -> str:
@@ -202,27 +208,43 @@ def format_pages(page_start: Optional[int], page_end: Optional[int]) -> Optional
     return f"pp. {page_start}–{page_end}"
 
 
-def link_citations(text: str, start_seconds: List[int], source_url: str) -> str:
-    """Replace [S<i>] labels with Markdown timestamp links into the video."""
+def replace_labels(text: str, citations: List[Citation]) -> str:
+    """Replace [S<i>] labels with each chunk's citation.
+
+    Linked citations become Markdown links separated by spaces
+    ("[02:05](url) [03:10](url)"); plain ones are joined in one bracket
+    ("(p. 3; pp. 7–8)"). Repeats within a run are dropped.
+    """
 
     def replace(match: re.Match) -> str:
-        links = []
-        seen = set()
+        links, plain, seen = [], [], set()
         for idx in (int(n) for n in re.findall(r"S(\d+)", match.group(0))):
-            if idx >= len(start_seconds) or idx in seen:
+            citation = citations[idx] if idx < len(citations) else None
+            if citation is None or citation in seen:
                 continue
-            seen.add(idx)
-            url = YouTubeService.generate_timestamp_url(source_url, start_seconds[idx])
-            links.append(f"[{format_timestamp(start_seconds[idx])}]({url})")
-        return " ".join(links)
+            seen.add(citation)
+            label, url = citation
+            if url:
+                links.append(f"[{label}]({url})")
+            else:
+                plain.append(label)
+        parts = links + ([f"({'; '.join(plain)})"] if plain else [])
+        return " ".join(parts)
 
-    linked = _CITATION_RE.sub(replace, text)
+    replaced = _CITATION_RE.sub(replace, text)
     # Dropping an invalid label can leave a trailing space before a newline.
-    return re.sub(r"[ \t]+$", "", linked, flags=re.MULTILINE)
+    return re.sub(r"[ \t]+$", "", replaced, flags=re.MULTILINE)
+
+
+def link_citations(text: str, start_seconds: List[int], source_url: str) -> str:
+    """Replace [S<i>] labels with Markdown timestamp links into the video."""
+    return replace_labels(text, [
+        (format_timestamp(s), YouTubeService.generate_timestamp_url(source_url, s)) for s in start_seconds
+    ])
 
 
 def _summarize_labelled_batch(labelled_text: str) -> str:
-    """Map step for long videos: bullet notes that keep their [S<i>] labels."""
+    """Map step for long sources: bullet notes that keep their [S<i>] labels."""
     try:
         response = client.chat.completions.create(
             model=MODEL_NAME,
@@ -238,16 +260,16 @@ def _summarize_labelled_batch(labelled_text: str) -> str:
         raise ai_failure(e, "summarizing a section") from e
 
 
-def generate_youtube_summary(chunks: List[Tuple[int, str]], source_url: str) -> str:
-    """Exam-revision summary of a video where every point links to its moment.
+def generate_cited_summary(chunks: List[str], citations: List[Citation]) -> str:
+    """Exam-revision summary where every point cites where it came from.
 
-    `chunks` is [(start_seconds, text), ...] in video order.
+    `chunks` are the stored chunk texts in source order and `citations[i]`
+    is the citation for chunks[i] (see replace_labels).
     """
     if not chunks:
         return "No text content available to summarize."
 
-    start_seconds = [s for s, _ in chunks]
-    labelled = [f"[S{i}] {text.strip()}" for i, (_, text) in enumerate(chunks)]
+    labelled = [f"[S{i}] {text.strip()}" for i, text in enumerate(chunks)]
 
     if sum(len(block) + 2 for block in labelled) <= MAP_REDUCE_THRESHOLD:
         source_content = "\n\n".join(labelled)
@@ -273,4 +295,15 @@ def generate_youtube_summary(chunks: List[Tuple[int, str]], source_url: str) -> 
         + " Keep the labels from the material when you combine or rephrase points."
     )
     summary = _final_summary(source_content, system_prompt)
-    return link_citations(summary, start_seconds, source_url)
+    return replace_labels(summary, citations)
+
+
+def generate_youtube_summary(chunks: List[Tuple[int, str]], source_url: str) -> str:
+    """Exam-revision summary of a video where every point links to its moment.
+
+    `chunks` is [(start_seconds, text), ...] in video order.
+    """
+    return generate_cited_summary(
+        [text for _, text in chunks],
+        [(format_timestamp(s), YouTubeService.generate_timestamp_url(source_url, s)) for s, _ in chunks],
+    )

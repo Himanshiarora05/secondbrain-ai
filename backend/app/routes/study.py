@@ -9,6 +9,7 @@ from app.models.summary import Summary
 from app.models.flashcard import Flashcard
 from app.services.ai.summary_service import (
     generate_summary,
+    generate_cited_summary,
     generate_youtube_summary,
     append_source_link,
     AIGenerationError,
@@ -62,9 +63,31 @@ def create_or_regenerate_summary(
             if c.content and c.content.strip()
         ]
 
+    # PDFs (page ranges) and PowerPoint decks (slide markers) cite "(p. 12)" /
+    # "(Slide 4)" from their stored chunks, like YouTube timestamps.
+    cited_chunks, citations = [], []
+    if doc.source_type in ("pdf", "pptx"):
+        rows = [
+            c for c in db.query(Chunk)
+            .filter(Chunk.document_id == doc.id)
+            .order_by(Chunk.id.asc())
+            .all()
+            if c.content and c.content.strip()
+        ]
+        citations = build_chunk_citations(
+            doc.source_type, doc.source_url, doc.filename,
+            [(c.content, c.start_seconds) for c in rows],
+            pages=[(c.page_start, c.page_end) for c in rows],
+        )
+        # A PDF uploaded before page tracking has no citations: plain summary as before.
+        if any(citations):
+            cited_chunks = [c.content for c in rows]
+
     try:
         if timed_chunks:
             summary_text = generate_youtube_summary(timed_chunks, doc.source_url)
+        elif cited_chunks:
+            summary_text = generate_cited_summary(cited_chunks, citations)
         else:
             summary_text = generate_summary(doc.content)
             if doc.source_type == "website" and doc.source_url:
