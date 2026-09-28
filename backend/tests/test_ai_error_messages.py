@@ -153,7 +153,7 @@ def test_flashcard_route_message_reads_well():
 
 def test_search_returns_an_error_instead_of_an_error_answer():
     with patch.object(search_service, "client", failing_client(status_error(402))), \
-         patch.object(search_route, "search_similar_chunks", return_value=[(0.9, "text", "doc", None, "pdf", None)]):
+         patch.object(search_route, "search_similar_chunks", return_value=[(0.9, "text", "doc", None, "pdf", None, "p. 1")]):
         try:
             search_route.search(query="What is ATP?")
         except HTTPException as e:

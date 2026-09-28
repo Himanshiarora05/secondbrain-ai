@@ -17,7 +17,7 @@ from openai import OpenAI
 from app.database.chroma import get_collection
 from app.services.embedding_service import get_embedding
 from app.services.youtube.youtube_service import YouTubeService
-from app.services.ai.summary_service import ai_failure
+from app.services.ai.summary_service import ai_failure, format_pages, format_timestamp
 
 load_dotenv()
 
@@ -29,7 +29,10 @@ client = OpenAI(
 
 def search_similar_chunks(query: str, top_k: int = 5):
     """Returns a list of (score, content, document_name, youtube_timestamp_url,
-    source_type, source_url) tuples, most similar first.
+    source_type, source_url, location) tuples, most similar first.
+
+    location is a short citation for the match: "02:05" for YouTube, "p. 12"
+    / "pp. 12–13" for PDFs with page ranges, otherwise None.
     """
     collection = get_collection()
     query_embedding = get_embedding(query)
@@ -53,14 +56,19 @@ def search_similar_chunks(query: str, top_k: int = 5):
         source_type = meta.get("source_type", "pdf")
         source_url = meta.get("source_url") or None
         youtube_timestamp_url = None
+        location = None
 
         if source_type == "youtube":
             youtube_timestamp_url = YouTubeService.generate_timestamp_url(
                 source_url or "", meta.get("start_seconds")
             )
+            if meta.get("start_seconds") is not None:
+                location = format_timestamp(meta["start_seconds"])
+        elif source_type == "pdf":
+            location = format_pages(meta.get("page_start"), meta.get("page_end"))
 
         scored_results.append(
-            (float(similarity), content, doc_name, youtube_timestamp_url, source_type, source_url)
+            (float(similarity), content, doc_name, youtube_timestamp_url, source_type, source_url, location)
         )
 
     return scored_results

@@ -322,6 +322,33 @@ def test_summary_route_picks_cited_or_plain_summary():
         assert (cited.called, plain.called) == ((True, False) if kind == "cited" else (False, True)), (source_type, kind)
 
 
+# ─── Stage 4: search ───
+
+def test_search_matches_carry_a_location():
+    from app.services import search_service
+    from app.routes import search as search_route
+    collection = MagicMock()
+    collection.query.return_value = {
+        "ids": [["1-0", "2-0", "3-0", "4-0"]],
+        "documents": [["pdf text", "old pdf text", "video text", "web text"]],
+        "metadatas": [[
+            {"filename": "notes.pdf", "source_type": "pdf", "page_start": 3, "page_end": 4},
+            {"filename": "old.pdf", "source_type": "pdf"},                      # uploaded before page tracking
+            {"filename": "YouTube: abcdefghijk", "source_type": "youtube",
+             "source_url": "https://www.youtube.com/watch?v=abcdefghijk", "start_seconds": 46},
+            {"filename": "Page", "source_type": "website", "source_url": "https://example.com/a"},
+        ]],
+        "distances": [[0.1, 0.2, 0.3, 0.4]],
+    }
+    with patch.object(search_service, "get_collection", return_value=collection), \
+         patch.object(search_service, "get_embedding", return_value=[0.0]):
+        results = search_service.search_similar_chunks("q")
+        assert [r[6] for r in results] == ["pp. 3–4", None, "00:46", None]
+        with patch.object(search_route, "generate_answer", return_value="An answer."):
+            response = search_route.search(query="q")
+    assert [m["location"] for m in response["top_matches"]] == ["pp. 3–4", None, "00:46"]
+
+
 if __name__ == "__main__":
     tests = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for t in tests:

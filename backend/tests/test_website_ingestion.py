@@ -576,7 +576,7 @@ def test_search_returns_source_url_for_websites():
          patch.object(search_service, "get_embedding", return_value=[0.0]):
         results = search_service.search_similar_chunks("light reactions")
     web, video = results
-    assert web[2:] == ("Photosynthesis Explained", None, "website", "https://www.example.com/article")
+    assert web[2:] == ("Photosynthesis Explained", None, "website", "https://www.example.com/article", None)
     assert video[3] == "https://www.youtube.com/watch?v=abcdefghijk&t=46s" and video[4] == "youtube"
 
 

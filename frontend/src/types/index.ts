@@ -11,6 +11,8 @@ export interface SourceMatch {
   youtube_timestamp_url?: string
   source_type?: SourceType
   source_url?: string
+  // Where in the source the match is: "02:05" (YouTube), "p. 12" / "pp. 12–13" (PDF), else null.
+  location?: string | null
 }
 
 export interface SearchResult {

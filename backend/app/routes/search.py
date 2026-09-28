@@ -9,7 +9,7 @@ router = APIRouter(prefix="/api/v1", tags=["Search"])
 def search(query: str = Query(...)):
 
     # 🔹 Step 1: Get similar chunks
-    # (score, content, doc_name, youtube_timestamp_url, source_type, source_url)
+    # (score, content, doc_name, youtube_timestamp_url, source_type, source_url, location)
     results = search_similar_chunks(query)[:3]
 
     # 🔹 Step 2: Build clean context (IMPORTANT)
@@ -33,7 +33,8 @@ def search(query: str = Query(...)):
                 "youtube_timestamp_url": youtube_url,
                 "source_type": source_type,
                 "source_url": source_url,
+                "location": location,
             }
-            for score, content, doc_name, youtube_url, source_type, source_url in results
+            for score, content, doc_name, youtube_url, source_type, source_url, location in results
         ],
     }
