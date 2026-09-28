@@ -211,6 +211,117 @@ def test_pdf_flashcards_cite_pages_through_the_route():
     assert labels == {"What makes ATP?": ("pp. 3–4", None), "What are cells?": ("p. 3", None)}, labels
 
 
+# ─── Stage 3: summaries ───
+
+def test_replace_labels_with_pages_and_slides():
+    from app.services.ai.summary_service import replace_labels
+    cites = [("p. 1", None), ("pp. 1–2", None), ("p. 1", None), None]
+    out = replace_labels("- A [S0]\n- B [S1][S0]\n- C [S0, S2]\n- D [S3]\n- E [S9]\n- F", cites)
+    assert out.splitlines() == [
+        "- A (p. 1)",
+        "- B (pp. 1–2; p. 1)",
+        "- C (p. 1)",          # two chunks on the same page: cited once
+        "- D",                 # chunk without a citation: label dropped
+        "- E",                 # invented label: dropped
+        "- F",
+    ], out
+    assert replace_labels("- Qubits [S0]", [("Slide 4", None)]) == "- Qubits (Slide 4)"
+
+
+def test_links_and_plain_citations_can_mix():
+    from app.services.ai.summary_service import replace_labels
+    out = replace_labels("- X [S0][S1]", [("02:05", "https://youtu.be/x?t=125"), ("p. 3", None)])
+    assert out == "- X [02:05](https://youtu.be/x?t=125) (p. 3)", out
+
+
+def _fake_summary_client(reply):
+    prompts = []
+
+    def create(**kwargs):
+        prompts.append(kwargs["messages"][-1]["content"])
+        resp = MagicMock()
+        resp.choices = [MagicMock(message=MagicMock(content=reply(prompts[-1])))]
+        return resp
+
+    client = MagicMock()
+    client.chat.completions.create.side_effect = create
+    return client, prompts
+
+
+def test_cited_summary_labels_chunks_and_cites_pages():
+    from app.services.ai import summary_service as ss
+    client, prompts = _fake_summary_client(lambda _: "## Cells\n- Cells are units of life [S0]\n- ATP from mitochondria [S1] [S7]")
+    with patch.object(ss, "client", client):
+        out = ss.generate_cited_summary(["Cells are units.", "Mitochondria make ATP."], [("p. 3", None), ("pp. 3–4", None)])
+    assert "[S0] Cells are units." in prompts[0] and "[S1] Mitochondria make ATP." in prompts[0]
+    assert out == "## Cells\n- Cells are units of life (p. 3)\n- ATP from mitochondria (pp. 3–4)", out
+
+
+def test_long_pdf_summary_keeps_global_labels_through_map_reduce():
+    from app.services.ai import summary_service as ss
+    chunks = [f"Topic {i}. " + "x" * 780 for i in range(14)]
+    cites = [(f"p. {i + 1}", None) for i in range(14)]
+
+    def reply(prompt):
+        if prompt.startswith("Extract key concepts"):
+            first = prompt.split("[S", 1)[1].split("]", 1)[0]
+            return f"- point [S{first}]"
+        return "## Summary\n- early [S0]\n- late [S13]"
+
+    client, prompts = _fake_summary_client(reply)
+    with patch.object(ss, "client", client):
+        out = ss.generate_cited_summary(chunks, cites)
+    assert len(prompts) > 2
+    assert out == "## Summary\n- early (p. 1)\n- late (p. 14)", out
+
+
+def _summary_db(doc, rows):
+    from app.models.chunk import Chunk
+    from app.models.document import Document
+    from app.models.summary import Summary
+
+    def query(model):
+        q = MagicMock()
+        if model is Document:
+            q.filter.return_value.first.return_value = doc
+        elif model is Summary:
+            q.filter.return_value.first.return_value = None
+        elif model is Chunk:
+            q.filter.return_value.order_by.return_value.all.return_value = rows
+        return q
+
+    db = MagicMock()
+    db.query.side_effect = query
+    return db
+
+
+def _doc(source_type):
+    doc = MagicMock(id=4, content="Full document text.", source_type=source_type, source_url=None)
+    doc.filename = f"notes.{source_type}"
+    return doc
+
+
+def test_summary_route_picks_cited_or_plain_summary():
+    from app.routes import study
+    from app.services.ai.summary_service import replace_labels
+    pdf_rows = [MagicMock(content="Cells.", start_seconds=None, page_start=2, page_end=2)]
+    old_pdf_rows = [MagicMock(content="Cells.", start_seconds=None, page_start=None, page_end=None)]
+    deck_rows = [MagicMock(content="[Slide 4: Qubits]\nA qubit holds 0 and 1.", start_seconds=None, page_start=None, page_end=None)]
+    cases = [
+        ("pdf", pdf_rows, "cited", "- Point (p. 2)"),
+        ("pdf", old_pdf_rows, "plain", "- Plain summary"),   # uploaded before page tracking
+        ("pptx", deck_rows, "cited", "- Point (Slide 4)"),
+        ("docx", pdf_rows, "plain", "- Plain summary"),       # Word: no location, never cited
+    ]
+    for source_type, rows, kind, expected in cases:
+        with patch.object(study, "generate_summary", return_value="- Plain summary") as plain, \
+             patch.object(study, "generate_cited_summary",
+                          side_effect=lambda chunks, cites: replace_labels("- Point [S0]", cites)) as cited:
+            result = study.create_or_regenerate_summary(4, regenerate=False, db=_summary_db(_doc(source_type), rows))
+        assert result["summary"] == expected, (source_type, kind, result["summary"])
+        assert (cited.called, plain.called) == ((True, False) if kind == "cited" else (False, True)), (source_type, kind)
+
+
 if __name__ == "__main__":
     tests = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for t in tests:
