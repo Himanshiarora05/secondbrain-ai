@@ -2,6 +2,20 @@ import type { SearchResult, DocumentItem, UploadResult, HealthStatus, Summary, F
 
 const API_BASE_URL = '/api'
 
+// Generation calls the AI and takes several seconds. If the same generation is
+// requested again while it's running (React StrictMode runs page effects twice
+// in dev, or a quick double click), share the running request instead of
+// paying for a second one.
+const inFlight = new Map<string, Promise<unknown>>()
+
+function shareInFlight<T>(key: string, start: () => Promise<T>): Promise<T> {
+  const running = inFlight.get(key)
+  if (running) return running as Promise<T>
+  const request = start().finally(() => inFlight.delete(key))
+  inFlight.set(key, request)
+  return request
+}
+
 export async function searchSecondBrain(
   query: string
 ): Promise<SearchResult> {
@@ -182,10 +196,14 @@ export async function getSummary(documentId: number): Promise<Summary> {
   return response.json()
 }
 
-export async function generateSummary(
+export function generateSummary(
   documentId: number,
   regenerate = false
 ): Promise<Summary> {
+  return shareInFlight(`summary:${documentId}:${regenerate}`, () => requestSummary(documentId, regenerate))
+}
+
+async function requestSummary(documentId: number, regenerate: boolean): Promise<Summary> {
   const response = await fetch(
     `${API_BASE_URL}/v1/documents/${documentId}/summary?regenerate=${regenerate}`,
     {
@@ -211,10 +229,14 @@ export async function getFlashcards(documentId: number): Promise<FlashcardsRespo
   return response.json()
 }
 
-export async function generateFlashcards(
+export function generateFlashcards(
   documentId: number,
   count = 10
 ): Promise<FlashcardsResponse> {
+  return shareInFlight(`flashcards:${documentId}:${count}`, () => requestFlashcards(documentId, count))
+}
+
+async function requestFlashcards(documentId: number, count: number): Promise<FlashcardsResponse> {
   const response = await fetch(
     `${API_BASE_URL}/v1/documents/${documentId}/flashcards?count=${count}`,
     {

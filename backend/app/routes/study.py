@@ -22,6 +22,14 @@ from app.services.ai.flashcard_service import (
 router = APIRouter(prefix="/api/v1/documents", tags=["Study"])
 
 
+def _lock_document(db: Session, document_id: int) -> None:
+    """Row-lock the document until commit/rollback so saves for it run one at a time.
+
+    Only taken right before writing, never around the (slow) LLM call.
+    """
+    db.query(Document.id).filter(Document.id == document_id).with_for_update().first()
+
+
 @router.post("/{document_id}/summary")
 def create_or_regenerate_summary(
     document_id: int,
@@ -63,6 +71,17 @@ def create_or_regenerate_summary(
                 summary_text = append_source_link(summary_text, doc.filename, doc.source_url)
     except AIGenerationError as e:
         raise HTTPException(status_code=502, detail=str(e))
+
+    # Another request may have saved a summary while this one was generating
+    # (double click, two tabs, React StrictMode running the page effect twice).
+    _lock_document(db, doc.id)
+    existing_summary = db.query(Summary).filter(Summary.document_id == document_id).first()
+    if existing_summary and not regenerate:
+        db.commit()  # releases the lock; keep the summary that was saved first
+        return {
+            "document_id": doc.id,
+            "summary": existing_summary.content,
+        }
 
     if existing_summary:
         existing_summary.content = summary_text
@@ -145,7 +164,10 @@ def create_flashcards(
             detail="Flashcard generation failed, your existing flashcards were not changed: no cards generated",
         )
 
-    # Replace existing flashcards for this document only after non-empty return
+    # Replace existing flashcards for this document only after non-empty return.
+    # The lock makes concurrent replaces run one after the other; without it both
+    # deletes can run before either insert commits and the deck ends up doubled.
+    _lock_document(db, doc.id)
     db.query(Flashcard).filter(Flashcard.document_id == document_id).delete()
 
     new_cards = [
