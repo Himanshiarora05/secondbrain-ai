@@ -9,7 +9,7 @@ to avoid context overflow and provide a coherent, high-yield summary.
 import logging
 import os
 import re
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 import openai
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -191,6 +191,15 @@ def format_timestamp(seconds: int) -> str:
     h, rem = divmod(max(int(seconds), 0), 3600)
     m, s = divmod(rem, 60)
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+
+
+def format_pages(page_start: Optional[int], page_end: Optional[int]) -> Optional[str]:
+    """(12, 12) -> 'p. 12'; (12, 13) -> 'pp. 12–13'; unknown pages -> None."""
+    if page_start is None:
+        return None
+    if page_end is None or page_end == page_start:
+        return f"p. {page_start}"
+    return f"pp. {page_start}–{page_end}"
 
 
 def link_citations(text: str, start_seconds: List[int], source_url: str) -> str:
