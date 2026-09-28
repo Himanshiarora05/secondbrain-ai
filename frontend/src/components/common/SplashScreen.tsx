@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { getDocuments } from '../../api/client'
 import { useDocuments } from '../../context/DocumentContext'
 
@@ -12,22 +12,19 @@ if (typeof window !== 'undefined') {
 }
 
 export function SplashScreen() {
-  if (typeof window !== 'undefined' && window.location.search.includes('force_splash=true')) {
-    hasShownSplash = false
-  }
-
-  // If already shown in this session/page load, don't show again
-  if (hasShownSplash) {
-    return null
-  }
-
   const { setInitialDocuments } = useDocuments()
-  const [stage, setStage] = useState<'visible' | 'fading-out' | 'hidden'>('visible')
-  const didMountRef = useRef(false)
+  // Decided once per mount: skip the splash if it was already shown in this page load.
+  const [alreadyShown] = useState(() => {
+    const forced = typeof window !== 'undefined' && window.location.search.includes('force_splash=true')
+    return hasShownSplash && !forced
+  })
+  const [stage, setStage] = useState<'visible' | 'fading-out' | 'hidden'>(alreadyShown ? 'hidden' : 'visible')
 
+  // Every run of this effect starts its own fade-out. React StrictMode (dev) mounts,
+  // cleans up and re-runs effects; a "run only once" guard here left the splash
+  // up forever, because the only gate that ran was the one its cleanup cancelled.
   useEffect(() => {
-    if (didMountRef.current) return
-    didMountRef.current = true
+    if (alreadyShown) return
     hasShownSplash = true
 
     let isSubscribed = true
@@ -67,7 +64,7 @@ export function SplashScreen() {
     return () => {
       isSubscribed = false
     }
-  }, [setInitialDocuments])
+  }, [alreadyShown, setInitialDocuments])
 
   if (stage === 'hidden') {
     return null

@@ -259,7 +259,7 @@ export function FlashcardPage() {
       </div>
 
       {/* Main Deck Area */}
-      <div className="p-8 md:p-12 rounded-3xl bg-[rgba(255,255,255,0.03)] backdrop-blur-xl border border-[rgba(255,255,255,0.08)] shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex flex-col items-center justify-center min-h-[480px]">
+      <div className="p-4 sm:p-8 md:p-12 rounded-3xl bg-[rgba(255,255,255,0.03)] backdrop-blur-xl border border-[rgba(255,255,255,0.08)] shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex flex-col items-center justify-center min-h-[480px]">
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <LoadingSpinner size={44} className="mb-4 text-[#3B82F6]" />
@@ -325,7 +325,7 @@ export function FlashcardPage() {
                 }`}
               >
                 {/* Front face: Question (Frosted Glass Floating Card) */}
-                <div className="absolute inset-0 w-full h-full [backface-visibility:hidden] bg-[rgba(255,255,255,0.05)] backdrop-blur-2xl border border-[rgba(255,255,255,0.12)] group-hover:bg-[rgba(255,255,255,0.08)] group-hover:border-[rgba(59,130,246,0.4)] group-hover:shadow-[0_0_35px_rgba(59,130,246,0.18)] rounded-3xl p-8 md:p-10 flex flex-col justify-between shadow-[0_12px_40px_rgba(0,0,0,0.6)] transition-all duration-200">
+                <div className="absolute inset-0 w-full h-full [backface-visibility:hidden] bg-[rgba(255,255,255,0.05)] backdrop-blur-2xl border border-[rgba(255,255,255,0.12)] group-hover:bg-[rgba(255,255,255,0.08)] group-hover:border-[rgba(59,130,246,0.4)] group-hover:shadow-[0_0_35px_rgba(59,130,246,0.18)] rounded-3xl p-5 sm:p-8 md:p-10 flex flex-col justify-between shadow-[0_12px_40px_rgba(0,0,0,0.6)] transition-all duration-200">
                   <div className="flex items-center justify-between">
                     <span className="inline-flex items-center gap-1.5 text-xs font-mono font-semibold text-[#93C5FD] bg-[rgba(59,130,246,0.15)] px-3 py-1 rounded-lg border border-[rgba(59,130,246,0.3)]">
                       <HelpCircle size={14} /> QUESTION
@@ -336,8 +336,8 @@ export function FlashcardPage() {
                     </span>
                   </div>
 
-                  <div className="my-auto text-center px-4 overflow-y-auto max-h-48">
-                    <p className="text-xl md:text-2xl font-semibold text-white leading-relaxed tracking-tight">
+                  <div className="my-auto text-center px-1 sm:px-4 overflow-y-auto max-h-48">
+                    <p className="text-lg sm:text-xl md:text-2xl font-semibold text-white leading-relaxed tracking-tight">
                       {currentCard?.question}
                     </p>
                   </div>
@@ -349,7 +349,7 @@ export function FlashcardPage() {
                 </div>
 
                 {/* Back face: Answer (Frosted Glass Floating Card with green tint) */}
-                <div className="absolute inset-0 w-full h-full [backface-visibility:hidden] [transform:rotateY(180deg)] bg-[rgba(255,255,255,0.05)] backdrop-blur-2xl border border-[rgba(52,211,153,0.35)] group-hover:bg-[rgba(255,255,255,0.08)] group-hover:border-[rgba(52,211,153,0.5)] group-hover:shadow-[0_0_35px_rgba(52,211,153,0.18)] rounded-3xl p-8 md:p-10 flex flex-col justify-between shadow-[0_12px_40px_rgba(0,0,0,0.6)] transition-all duration-200">
+                <div className="absolute inset-0 w-full h-full [backface-visibility:hidden] [transform:rotateY(180deg)] bg-[rgba(255,255,255,0.05)] backdrop-blur-2xl border border-[rgba(52,211,153,0.35)] group-hover:bg-[rgba(255,255,255,0.08)] group-hover:border-[rgba(52,211,153,0.5)] group-hover:shadow-[0_0_35px_rgba(52,211,153,0.18)] rounded-3xl p-5 sm:p-8 md:p-10 flex flex-col justify-between shadow-[0_12px_40px_rgba(0,0,0,0.6)] transition-all duration-200">
                   <div className="flex items-center justify-between">
                     <span className="inline-flex items-center gap-1.5 text-xs font-mono font-semibold text-[#34D399] bg-[rgba(52,211,153,0.18)] px-3 py-1 rounded-lg border border-[rgba(52,211,153,0.3)]">
                       <CheckCircle2 size={14} /> ANSWER
@@ -360,8 +360,8 @@ export function FlashcardPage() {
                     </span>
                   </div>
 
-                  <div className="my-auto text-center px-4 overflow-y-auto max-h-48">
-                    <p className="text-lg md:text-xl text-white leading-relaxed font-normal">
+                  <div className="my-auto text-center px-1 sm:px-4 overflow-y-auto max-h-48">
+                    <p className="text-base sm:text-lg md:text-xl text-white leading-relaxed font-normal">
                       {currentCard?.answer}
                     </p>
                   </div>
