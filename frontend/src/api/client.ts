@@ -134,10 +134,25 @@ export async function uploadWebsite(
 
   if (!response.ok) {
     const errData = await response.json().catch(() => ({}))
-    throw new Error(errData.detail || `Website import failed: ${response.status}`)
+    const detail = errData.detail
+    // 409: the page is already saved; detail is { message, document_id }.
+    if (detail && typeof detail === 'object') {
+      throw new DuplicateSourceError(detail.message, detail.document_id)
+    }
+    throw new Error(detail || `Website import failed: ${response.status}`)
   }
 
   return response.json()
+}
+
+export class DuplicateSourceError extends Error {
+  documentId: number
+
+  constructor(message: string, documentId: number) {
+    super(message)
+    this.name = 'DuplicateSourceError'
+    this.documentId = documentId
+  }
 }
 
 export async function getDocuments(): Promise<DocumentItem[]> {

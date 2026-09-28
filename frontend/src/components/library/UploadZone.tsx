@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { Plus, Video, UploadCloud, ArrowRight, Globe } from 'lucide-react'
-import { uploadPDF, uploadPPTX, uploadDOCX, uploadYouTube, uploadWebsite } from '../../api/client'
+import { uploadPDF, uploadPPTX, uploadDOCX, uploadYouTube, uploadWebsite, DuplicateSourceError } from '../../api/client'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 
 interface UploadZoneProps {
@@ -50,6 +51,8 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
   const [youtubeUrl, setYoutubeUrl] = useState('')
   const [websiteUrl, setWebsiteUrl] = useState('')
   const [error, setError] = useState<string | null>(null)
+  // Set when the error is "already in your library"; only shown while that error is.
+  const [duplicate, setDuplicate] = useState<{ message: string; documentId: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const isUploadingRef = useRef(false)
 
@@ -168,6 +171,7 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
       onUploadSuccess()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to import web page')
+      setDuplicate(err instanceof DuplicateSourceError ? { message: err.message, documentId: err.documentId } : null)
     } finally {
       isUploadingRef.current = false
       setIsUploading(false)
@@ -368,6 +372,15 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
       {error && (
         <div className="mt-5 p-4 bg-[rgba(248,113,113,0.15)] border border-[rgba(248,113,113,0.3)] text-[#F87171] rounded-2xl text-xs flex items-center gap-2 max-w-lg mx-auto animate-fade-in">
           <span>{error}</span>
+          {duplicate && duplicate.message === error && (
+            <Link
+              to={`/library/${duplicate.documentId}/summary`}
+              className="ml-auto flex-shrink-0 inline-flex items-center gap-1 font-semibold text-[#FCA5A5] hover:text-white underline underline-offset-2"
+            >
+              Open it
+              <ArrowRight size={12} />
+            </Link>
+          )}
         </div>
       )}
     </div>

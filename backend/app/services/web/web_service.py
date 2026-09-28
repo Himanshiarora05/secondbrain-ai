@@ -11,7 +11,7 @@ import re
 import time
 from dataclasses import dataclass
 from typing import Optional
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlsplit
 
 import httpx
 import trafilatura
@@ -90,6 +90,40 @@ def normalize_url(url: str) -> str:
     if url and "://" not in url and not _NON_HTTP_SCHEME_RE.match(url):
         url = "https://" + url
     return url
+
+
+# Query parameters that only track where a click came from; they don't change the page.
+_TRACKING_PARAMS = {"fbclid", "gclid", "dclid", "msclkid", "yclid", "igshid", "mc_cid", "mc_eid", "ref_src", "_hsenc", "_hsmi"}
+
+
+def url_key(url: str) -> Optional[str]:
+    """Comparison key for duplicate detection: two links with the same key are the same page.
+
+    Ignores http vs https, a leading "www.", host case, default ports, a
+    trailing slash, the #fragment, tracking parameters (utm_*, fbclid, ...),
+    query parameter order and percent-encoding (%27 vs '). Path case and other
+    query parameters still count. Returns None for something that isn't a URL.
+    """
+    try:
+        parts = urlsplit(normalize_url(url))
+        port = parts.port
+    except ValueError:
+        return None
+    host = (parts.hostname or "").rstrip(".")
+    if not host:
+        return None
+    if host.startswith("www."):
+        host = host[4:]
+    if port and port not in (80, 443):
+        host = f"{host}:{port}"
+    path = unquote(parts.path) or "/"
+    if len(path) > 1:
+        path = path.rstrip("/")
+    query = sorted(
+        (k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+        if not k.lower().startswith("utm_") and k.lower() not in _TRACKING_PARAMS
+    )
+    return host + path + ("?" + urlencode(query) if query else "")
 
 
 def _is_login_url(url: str) -> bool:

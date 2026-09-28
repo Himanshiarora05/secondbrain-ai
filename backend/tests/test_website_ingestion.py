@@ -6,6 +6,7 @@ from an httpx.MockTransport.
 
 Run from backend/:  .venv/Scripts/python.exe tests/test_website_ingestion.py
 """
+import json
 import os
 import socket
 import sys
@@ -39,7 +40,7 @@ from fastapi import HTTPException
 from app.services.web import url_safety
 from app.services.web.errors import WebPageError
 from app.services.web.url_safety import SafeNetworkBackend, check_url
-from app.services.web.web_service import WebService, normalize_url, MAX_PAGE_BYTES
+from app.services.web.web_service import WebService, normalize_url, url_key, MAX_PAGE_BYTES
 from app.services.ai import summary_service
 from app.services import search_service
 from app.api import upload
@@ -436,14 +437,85 @@ def test_unreadable_pages_get_specific_errors():
 
 # ─── Endpoint ───
 
-def _call_upload(url, fetch_result=None, fetch_error=None):
+def _call_upload(url, fetch_result=None, fetch_error=None, saved=()):
+    """Call the endpoint with fetching and storage mocked; `saved` are existing website documents."""
     fetched = MagicMock(url="https://www.example.com/article", html=ARTICLE_HTML)
+    db = MagicMock()
+    db.query.return_value.filter.return_value.all.return_value = list(saved)
     with patch.object(upload.WebService, "fetch_page",
                       side_effect=fetch_error, return_value=fetch_result or fetched) as fetch, \
          patch.object(upload, "_store_document_and_chunks", return_value={"status": "stored"}) as store, \
          patch.object(upload, "logger"):
-        result = upload.upload_website(upload.WebsiteUploadRequest(url=url), db=MagicMock())
+        result = upload.upload_website(upload.WebsiteUploadRequest(url=url), db=db)
     return result, fetch, store
+
+
+def _saved_doc(doc_id, source_url, original_url=None, filename="Saved page"):
+    row = MagicMock(id=doc_id, source_url=source_url,
+                    metadata_json=json.dumps({"original_url": original_url or source_url}))
+    row.filename = filename
+    return row
+
+
+# ─── Duplicate detection ───
+
+def test_url_key_treats_equivalent_links_as_the_same_page():
+    same = [
+        "https://en.wikipedia.org/wiki/Ohm%27s_law",
+        "http://en.wikipedia.org/wiki/Ohm's_law",
+        "en.wikipedia.org/wiki/Ohm's_law/",
+        "https://EN.Wikipedia.org/wiki/Ohm%27s_law#History",
+        "https://en.wikipedia.org:443/wiki/Ohm%27s_law?utm_source=x&fbclid=abc",
+    ]
+    keys = {url_key(u) for u in same}
+    assert len(keys) == 1, keys
+    assert url_key("https://www.example.com/a?b=2&a=1") == url_key("example.com/a?a=1&b=2")
+
+
+def test_url_key_keeps_what_changes_the_page():
+    assert url_key("https://example.com/Page") != url_key("https://example.com/page")  # path case
+    assert url_key("https://example.com/item?id=1") != url_key("https://example.com/item?id=2")
+    assert url_key("https://example.com/a") != url_key("https://other.example.com/a")
+    assert url_key("https://example.com:8080/a") != url_key("https://example.com/a")
+    assert url_key("") is None and url_key("https://") is None and url_key("http://[bad") is None
+
+
+def _expect_duplicate(call, doc_id):
+    try:
+        call()
+    except HTTPException as e:
+        assert e.status_code == 409, e.status_code
+        assert e.detail["document_id"] == doc_id and "already in your library" in e.detail["message"]
+        return e
+    raise AssertionError("expected a 409 duplicate error")
+
+
+def test_duplicate_is_refused_before_fetching():
+    saved = [_saved_doc(3, "https://en.wikipedia.org/wiki/Mitochondrial_matrix", filename="Mitochondrial matrix - Wikipedia")]
+    # Any fetch raises AssertionError, which _expect_duplicate would not accept as a 409.
+    e = _expect_duplicate(lambda: _call_upload("en.wikipedia.org/wiki/Mitochondrial_matrix/#Structure", saved=saved,
+                                               fetch_error=AssertionError("must not fetch a known page")), 3)
+    assert '"Mitochondrial matrix - Wikipedia"' in e.detail["message"]
+
+
+def test_duplicate_of_the_originally_entered_link_is_refused():
+    saved = [_saved_doc(4, "https://www.example.com/article", original_url="http://short.example/abc")]
+    _expect_duplicate(lambda: _call_upload("http://short.example/abc", saved=saved), 4)
+
+
+def test_duplicate_found_after_redirect_is_refused_before_storing():
+    saved = [_saved_doc(5, "https://www.example.com/article")]
+    stored = []
+    with patch.object(upload, "_store_document_and_chunks", side_effect=lambda **kw: stored.append(kw)):
+        # A different link that redirects (fetch returns final URL www.example.com/article).
+        _expect_duplicate(lambda: _call_upload("https://bit.example/xyz", saved=saved), 5)
+    assert not stored
+
+
+def test_different_page_is_still_imported():
+    saved = [_saved_doc(6, "https://www.example.com/other-article")]
+    result, fetch, store = _call_upload("https://www.example.com/article", saved=saved)
+    assert result == {"status": "stored"} and fetch.called and store.called
 
 
 def test_endpoint_stores_website_document():
