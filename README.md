@@ -7,9 +7,10 @@ A study notes summarizer. Add your study material, and SecondBrain turns it into
 - **Add sources**: PDF, PowerPoint (`.pptx`), Word (`.docx`), YouTube videos (with captions), and website links.
 - **Summaries**: exam-revision notes for each source.
   - YouTube summaries link every point to its moment in the video (`[02:05]`).
+  - PDF summaries cite the page of every point (`(p. 12)`, `(pp. 12–13)`), PowerPoint summaries the slide (`(Slide 4)`).
   - Website summaries end with a link back to the original page.
-- **Flashcards**: question-and-answer cards generated from any source, spread across the whole source. Each card shows where it came from: the video moment, the web page, or the slides (PDF and Word cards don't show a location).
-- **Ask questions**: search across everything you've saved and get an AI answer, with links to the sources it used (the exact video moment for YouTube, the page for websites).
+- **Flashcards**: question-and-answer cards generated from any source, spread across the whole source. Each card shows where it came from: the video moment, the web page, the PDF page or the slides (Word cards don't show a location).
+- **Ask questions**: search across everything you've saved and get an AI answer, with links to the sources it used (the exact video moment for YouTube, the page for websites) and the page for PDFs.
 - **No duplicate links**: adding a web page or YouTube video that's already in your library is refused, with an "Open it" link to the saved copy. Different forms of the same link count as the same (`http`/`https`, `www.`, `#section` or tracking parameters for pages; `youtu.be`, `/shorts/` or `&t=` for videos). To re-import, delete the saved copy first.
 - **Clear AI errors**: if the AI service can't respond (out of credits, invalid API key, rate limit, timeout, outage), the page says so in plain words. The technical details go to the backend log.
 
@@ -121,6 +122,17 @@ npm run dev
 
 Open the URL Vite prints (usually http://localhost:5173).
 
+## Page numbers for older PDFs
+
+PDFs uploaded before page tracking don't cite pages yet. Their original files are kept in `backend/uploads/`, so they can be re-indexed without uploading again. From `backend/`:
+
+```bash
+python scripts/reindex_pdf_pages.py           # preview: lists what would change, changes nothing
+python scripts/reindex_pdf_pages.py --apply   # re-index
+```
+
+This rebuilds each PDF's search chunks with page numbers. The document, its summary and its flashcards are kept; regenerate the summary or flashcards afterwards to get page citations.
+
 ## Development
 
 Frontend checks, from `frontend/`:
@@ -145,6 +157,7 @@ Only these are safe to run anywhere: they're fully offline (network, database, a
 - `test_concurrent_generation.py`
 - `test_youtube_duplicates.py`
 - `test_ai_error_messages.py`
+- `test_pdf_page_citations.py`
 
 The other scripts run against your **real** database, vector index, and OpenRouter account, and some delete data. Read a script before running it.
 
