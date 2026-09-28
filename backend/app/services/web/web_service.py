@@ -24,6 +24,9 @@ MAX_REDIRECTS = 5
 TOTAL_TIMEOUT_SECONDS = 20
 REQUEST_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 MIN_TEXT_CHARS = 200
+# Below this length, a page whose text asks the reader to enable JavaScript is
+# treated as a JavaScript-only page (only its fallback notice was readable).
+SHORT_PAGE_CHARS = 1000
 MAX_TITLE_CHARS = 300
 
 # An honest agent with a contact URL; sites like Wikipedia refuse generic or browser-imitating ones.
@@ -39,6 +42,25 @@ _EMPTY_APP_ROOT_RE = re.compile(
     r"<div[^>]+id\s*=\s*[\"'](root|app|__next|__nuxt|svelte|main-app)[\"'][^>]*>\s*</div>", re.IGNORECASE
 )
 _NOSCRIPT_JS_RE = re.compile(r"<noscript[^>]*>.{0,500}?javascript", re.IGNORECASE | re.DOTALL)
+_ENABLE_JS_TEXT_RE = re.compile(
+    r"(enable|turn on|activate|allow)\s+javascript"
+    r"|javascript\s+(is\s+)?(enabled|required|disabled|must be enabled|is not enabled|needs to be enabled)",
+    re.IGNORECASE,
+)
+
+# Reference lists, footnote markers and navigation boxes (Wikipedia/MediaWiki
+# and pages using the ARIA doc-* roles). Removed before extraction so they don't
+# end up in chunks, summaries and flashcards.
+_PRUNE_XPATH = [
+    "//sup[contains(@class,'reference')]",
+    "//ol[contains(@class,'references')]",
+    "//div[contains(@class,'reflist')]",
+    "//*[contains(@class,'mw-references')]",
+    "//*[@role='doc-bibliography']",
+    "//*[@role='doc-endnotes']",
+    "//*[@role='doc-noteref']",
+    "//*[contains(@class,'navbox')]",
+]
 _CHALLENGE_MARKERS = (
     "<title>just a moment...</title>",
     "cf-browser-verification",
@@ -137,6 +159,14 @@ def _timeout() -> WebPageError:
     return WebPageError("timeout", "The website took too long to respond. Please try again later", status_code=504)
 
 
+def _javascript_required() -> WebPageError:
+    return WebPageError(
+        "javascript_required",
+        "This page only shows its content with JavaScript, so its text can't be read. "
+        "Try a different page or save it as a PDF and upload that",
+    )
+
+
 def _make_client(transport: Optional[httpx.BaseTransport]) -> httpx.Client:
     if transport is None:
         transport = httpx.HTTPTransport(retries=0)
@@ -223,6 +253,7 @@ class WebService:
             include_links=False,
             with_metadata=True,
             deduplicate=True,
+            prune_xpath=_PRUNE_XPATH,
         )
         text = ((doc.text if doc else None) or "").strip()
 
@@ -239,12 +270,13 @@ class WebService:
                 or _NOSCRIPT_JS_RE.search(lower)
                 or lower.count("<script") >= 5
             ):
-                raise WebPageError(
-                    "javascript_required",
-                    "This page only shows its content with JavaScript, so its text can't be read. "
-                    "Try a different page or save it as a PDF and upload that",
-                )
+                raise _javascript_required()
             raise WebPageError("no_text", "No readable article text was found on this page")
+
+        # A short page whose readable text is a "please enable JavaScript" notice
+        # (e.g. an app's meta blurb plus its <noscript> fallback) has no real content.
+        if len(text) < SHORT_PAGE_CHARS and _ENABLE_JS_TEXT_RE.search(text):
+            raise _javascript_required()
 
         title = " ".join(((doc.title if doc else None) or "").split())
         if not title:
