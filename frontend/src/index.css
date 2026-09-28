@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./styles/design-tokens.css";
+@plugin "@tailwindcss/typography"; /* the prose / prose-* classes on rendered Markdown */
 
 /* ============================================
    SecondBrain AI — Global Styles
