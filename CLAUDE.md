@@ -5,7 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 SecondBrain is a study notes summarizer. Users add sources — PDFs, PPTs, YouTube video links and website links — and the app turns them into concise notes that cite where each point came from (for YouTube, the timestamp in the video), generates flashcards for quick revision, and has an AI assistant that answers questions from the saved material. `backend/` is FastAPI + Postgres + Chroma; `frontend/` is React 19 + Vite + TypeScript + Tailwind v4.
 
 Current gaps against that goal (as of 2026-09):
-- **Flashcards don't cite timestamps** (or source pages). Search answers (`youtube_timestamp_url` per match) and YouTube summaries do.
+- **PDF and Word sources carry no location.** No page numbers are stored (`PDFService` joins all pages; `.docx` has no pages), so their flashcards have no citation and their summaries cite nothing.
+
+**Flashcard citations:** `generate_cited_flashcards` (`app/services/ai/flashcard_service.py`) works from the stored chunks, labelled `[S0]`, `[S1]`, …; the LLM returns a `source` label per card, validated against the batch it was shown (anything else → no citation, card kept). `build_chunk_citations` turns a chunk into a citation from stored data: YouTube `("02:05", timestamp url)`, website `(page title, url)`, PPTX `("Slides 3–4", None)` from `[Slide N]` markers tracked across chunks, PDF/DOCX `None`. Saved on `flashcards.source_label` / `source_url` at generation time; old cards stay null until regenerated. Coverage is enforced in code, not the prompt (the model favours the start of whatever it sees): short sources are split into `ceil(count/3)` consecutive groups, long ones sampled evenly, picks taken round-robin and returned in source order. Documents without chunks fall back to `generate_flashcards(doc.content)`. Offline tests: `tests/test_flashcard_citations.py`.
 
 **YouTube summary citations:** `generate_youtube_summary` (`app/services/ai/summary_service.py`) labels each stored chunk `[S0]`, `[S1]`, … and the LLM cites labels, never times; `link_citations` then swaps labels for `[mm:ss](url&t=…)` links from `Chunk.start_seconds` and drops labels matching no chunk. Keep it that way — don't let the model write timestamps. Summaries are cached in `summaries`, so prompt changes only show after regenerating. Offline tests: `tests/test_youtube_summary_citations.py` (mocked LLM, safe to run).
 
@@ -31,7 +33,7 @@ npm run build      # tsc -b && vite build (this is the type check)
 npm run lint       # oxlint
 ```
 
-Tests: `backend/tests/` contains ad-hoc verification scripts, not a pytest suite (pytest is not installed). Apart from the offline `test_youtube_summary_citations.py` and `test_website_ingestion.py`, they run against the **live** Postgres, Chroma and OpenRouter, and some mutate data (`test_delete_endpoint_and_cleanup.py` deletes hard-coded document IDs). Don't run them casually; run a single one with `.venv/Scripts/python.exe tests/<file>.py` from `backend/`. There are no frontend tests.
+Tests: `backend/tests/` contains ad-hoc verification scripts, not a pytest suite (pytest is not installed). Apart from the offline `test_youtube_summary_citations.py`, `test_website_ingestion.py`, `test_office_formats.py` and `test_flashcard_citations.py`, they run against the **live** Postgres, Chroma and OpenRouter, and some mutate data (`test_delete_endpoint_and_cleanup.py` deletes hard-coded document IDs). Don't run them casually; run a single one with `.venv/Scripts/python.exe tests/<file>.py` from `backend/`. There are no frontend tests.
 
 ## Backend architecture
 

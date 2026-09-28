@@ -13,7 +13,11 @@ from app.services.ai.summary_service import (
     append_source_link,
     AIGenerationError,
 )
-from app.services.ai.flashcard_service import generate_flashcards
+from app.services.ai.flashcard_service import (
+    generate_flashcards,
+    generate_cited_flashcards,
+    build_chunk_citations,
+)
 
 router = APIRouter(prefix="/api/v1/documents", tags=["Study"])
 
@@ -110,8 +114,25 @@ def create_flashcards(
     if not doc.content or not doc.content.strip():
         raise HTTPException(status_code=400, detail="Document has no content to generate flashcards")
 
+    chunk_rows = [
+        c for c in db.query(Chunk)
+        .filter(Chunk.document_id == doc.id)
+        .order_by(Chunk.id.asc())
+        .all()
+        if c.content and c.content.strip()
+    ]
+
     try:
-        cards_data = generate_flashcards(doc.content, count=count)
+        if chunk_rows:
+            citations = build_chunk_citations(
+                doc.source_type,
+                doc.source_url,
+                doc.filename,
+                [(c.content, c.start_seconds) for c in chunk_rows],
+            )
+            cards_data = generate_cited_flashcards([c.content for c in chunk_rows], citations, count=count)
+        else:
+            cards_data = generate_flashcards(doc.content, count=count)
     except AIGenerationError as e:
         raise HTTPException(
             status_code=502,
@@ -128,7 +149,13 @@ def create_flashcards(
     db.query(Flashcard).filter(Flashcard.document_id == document_id).delete()
 
     new_cards = [
-        Flashcard(document_id=doc.id, question=c["question"], answer=c["answer"])
+        Flashcard(
+            document_id=doc.id,
+            question=c["question"],
+            answer=c["answer"],
+            source_label=c.get("source_label"),
+            source_url=c.get("source_url"),
+        )
         for c in cards_data
     ]
     db.add_all(new_cards)
@@ -139,14 +166,7 @@ def create_flashcards(
 
     return {
         "document_id": doc.id,
-        "flashcards": [
-            {
-                "id": card.id,
-                "question": card.question,
-                "answer": card.answer,
-            }
-            for card in saved_cards
-        ],
+        "flashcards": [_flashcard_dict(card) for card in saved_cards],
     }
 
 
@@ -163,12 +183,15 @@ def get_document_flashcards(
 
     return {
         "document_id": doc.id,
-        "flashcards": [
-            {
-                "id": card.id,
-                "question": card.question,
-                "answer": card.answer,
-            }
-            for card in cards
-        ],
+        "flashcards": [_flashcard_dict(card) for card in cards],
+    }
+
+
+def _flashcard_dict(card: Flashcard) -> dict:
+    return {
+        "id": card.id,
+        "question": card.question,
+        "answer": card.answer,
+        "source_label": card.source_label,
+        "source_url": card.source_url,
     }
