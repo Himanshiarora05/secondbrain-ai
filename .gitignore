@@ -1,0 +1,15 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Generated / local data
+backend/uploads/
+backend/vector_db/
+backend/.backup_before_sync/
+backend/tests/verification_report.json
+*.sql
+*.zip
+
+# Editor
+.vscode/
