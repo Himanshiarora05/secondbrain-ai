@@ -8,7 +8,7 @@ A study notes summarizer. Add your study material, and SecondBrain turns it into
 - **Summaries**: exam-revision notes for each source.
   - YouTube summaries link every point to its moment in the video (`[02:05]`).
   - Website summaries end with a link back to the original page.
-- **Flashcards**: question-and-answer cards generated from any source.
+- **Flashcards**: question-and-answer cards generated from any source, spread across the whole source. Each card shows where it came from: the video moment, the web page, or the slides (PDF and Word cards don't show a location).
 - **Ask questions**: search across everything you've saved and get an AI answer, with links to the sources it used (the exact video moment for YouTube, the page for websites).
 
 Old `.ppt` and `.doc` files aren't supported; save them as `.pptx` / `.docx` first. Website import only reads public pages (no logins, paywalls, or JavaScript-only apps) up to 5 MB.
@@ -139,6 +139,7 @@ Only these are safe to run anywhere: they're fully offline (network, database, a
 - `test_youtube_summary_citations.py`
 - `test_website_ingestion.py`
 - `test_office_formats.py`
+- `test_flashcard_citations.py`
 
 The other scripts run against your **real** database, vector index, and OpenRouter account, and some delete data. Read a script before running it.
 

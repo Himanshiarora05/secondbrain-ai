@@ -77,3 +77,13 @@ def init_db():
                 "ALTER TABLE chunks ADD COLUMN IF NOT EXISTS start_seconds INTEGER;"
             )
         )
+        conn.execute(
+            text(
+                "ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS source_label VARCHAR;"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS source_url VARCHAR;"
+            )
+        )

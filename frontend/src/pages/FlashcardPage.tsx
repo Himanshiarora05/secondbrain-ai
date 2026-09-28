@@ -16,6 +16,7 @@ import {
   FileEdit,
   Video,
   Globe,
+  ExternalLink,
 } from 'lucide-react'
 import { getDocuments, getFlashcards, generateFlashcards } from '../api/client'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
@@ -365,9 +366,28 @@ export function FlashcardPage() {
                     </p>
                   </div>
 
-                  <div className="flex justify-between items-center text-[11px] text-[#A1A1AA] font-mono border-t border-[rgba(255,255,255,0.08)] pt-3.5">
-                    <span className="text-[#34D399]">Concept Mastered</span>
-                    <span>#{currentIndex + 1}</span>
+                  <div className="flex justify-between items-center gap-4 text-[11px] text-[#A1A1AA] font-mono border-t border-[rgba(255,255,255,0.08)] pt-3.5">
+                    {currentCard?.source_label ? (
+                      currentCard.source_url ? (
+                        <a
+                          href={currentCard.source_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          tabIndex={isFlipped ? 0 : -1}
+                          className="inline-flex items-center gap-1.5 min-w-0 text-[#34D399] hover:text-[#6EE7B7] hover:underline transition-colors"
+                          title={`Open the source: ${currentCard.source_url}`}
+                        >
+                          <span className="truncate">Source: {currentCard.source_label}</span>
+                          <ExternalLink size={11} className="flex-shrink-0" />
+                        </a>
+                      ) : (
+                        <span className="truncate text-[#34D399]">Source: {currentCard.source_label}</span>
+                      )
+                    ) : (
+                      <span className="text-[#34D399]">Concept Mastered</span>
+                    )}
+                    <span className="flex-shrink-0">#{currentIndex + 1}</span>
                   </div>
                 </div>
               </div>

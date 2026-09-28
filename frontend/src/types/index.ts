@@ -72,6 +72,11 @@ export interface Flashcard {
   id: number
   question: string
   answer: string
+  // Where the card came from: "02:05", a page title, or "Slide 4". Null for PDF/Word
+  // cards and for cards generated before citations existed.
+  source_label?: string | null
+  // Link for source_label (video moment or web page); null for slides.
+  source_url?: string | null
 }
 
 export interface FlashcardsResponse {
