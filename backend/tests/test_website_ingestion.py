@@ -525,7 +525,7 @@ def test_website_summary_gets_source_line():
 
     def query(model):
         q = MagicMock()
-        q.filter.return_value.first.return_value = {Document: doc, Summary: None}[model]
+        q.filter.return_value.first.return_value = {Document: doc, Summary: None}.get(model)  # Document.id: the row lock
         return q
 
     db.query.side_effect = query
