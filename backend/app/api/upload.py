@@ -31,6 +31,27 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB
 
+# Old binary Office files (.ppt/.doc) are OLE compound files, which python-pptx and
+# python-docx can't read. Password-protected .pptx/.docx files use the same container.
+OLE_SIGNATURE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
+LEGACY_PPT_MESSAGE = (
+    "Old PowerPoint files (.ppt) aren't supported. Open the file in PowerPoint "
+    "(or Google Slides / LibreOffice), choose File → Save As → .pptx, and upload that."
+)
+LEGACY_DOC_MESSAGE = (
+    "Old Word files (.doc) aren't supported. Open the file in Word "
+    "(or Google Docs / LibreOffice), choose File → Save As → .docx, and upload that."
+)
+OLE_PPTX_MESSAGE = (
+    "This file can't be read: it's either an old .ppt presentation renamed to .pptx, or it's "
+    "password-protected. Remove any password and save it as .pptx, then upload it again."
+)
+OLE_DOCX_MESSAGE = (
+    "This file can't be read: it's either an old .doc document renamed to .docx, or it's "
+    "password-protected. Remove any password and save it as .docx, then upload it again."
+)
+
 
 class YouTubeUploadRequest(BaseModel):
     url: str
@@ -181,12 +202,16 @@ async def upload_pdf(file: UploadFile = File(...), db: Session = Depends(get_db)
 @router.post("/pptx")
 async def upload_pptx(file: UploadFile = File(...), db: Session = Depends(get_db)):
     filename = file.filename or ""
-    if not filename.lower().endswith((".pptx", ".ppt")):
+    if filename.lower().endswith(".ppt"):
+        raise HTTPException(status_code=400, detail=LEGACY_PPT_MESSAGE)
+    if not filename.lower().endswith(".pptx"):
         raise HTTPException(status_code=400, detail="Only PowerPoint (.pptx) files are allowed")
 
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="File too large (maximum 20 MB)")
+    if content.startswith(OLE_SIGNATURE):
+        raise HTTPException(status_code=400, detail=OLE_PPTX_MESSAGE)
 
     file_id = str(uuid.uuid4())
     file_path = UPLOAD_DIR / f"{file_id}.pptx"
@@ -229,12 +254,16 @@ async def upload_pptx(file: UploadFile = File(...), db: Session = Depends(get_db
 @router.post("/docx")
 async def upload_docx(file: UploadFile = File(...), db: Session = Depends(get_db)):
     filename = file.filename or ""
-    if not filename.lower().endswith((".docx", ".doc")):
+    if filename.lower().endswith(".doc"):
+        raise HTTPException(status_code=400, detail=LEGACY_DOC_MESSAGE)
+    if not filename.lower().endswith(".docx"):
         raise HTTPException(status_code=400, detail="Only Word (.docx) files are allowed")
 
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="File too large (maximum 20 MB)")
+    if content.startswith(OLE_SIGNATURE):
+        raise HTTPException(status_code=400, detail=OLE_DOCX_MESSAGE)
 
     file_id = str(uuid.uuid4())
     file_path = UPLOAD_DIR / f"{file_id}.docx"

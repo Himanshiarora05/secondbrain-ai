@@ -7,7 +7,13 @@ interface UploadZoneProps {
   onUploadSuccess: () => void
 }
 
-const NON_HTTP_SCHEME = /^(javascript|data|mailto|file|ftp|about|blob|vbscript|tel):/i
+// Same wording as the backend (upload.py); python-pptx/python-docx can't read the old binary formats.
+const LEGACY_PPT_MESSAGE =
+  "Old PowerPoint files (.ppt) aren't supported. Open the file in PowerPoint (or Google Slides / LibreOffice), choose File → Save As → .pptx, and upload that."
+const LEGACY_DOC_MESSAGE =
+  "Old Word files (.doc) aren't supported. Open the file in Word (or Google Docs / LibreOffice), choose File → Save As → .docx, and upload that."
+
+const NON_HTTP_SCHEME =/^(javascript|data|mailto|file|ftp|about|blob|vbscript|tel):/i
 
 // Friendly checks only; the backend makes every security decision (private addresses, redirects, size).
 function validateWebsiteUrl(raw: string): { url: string } | { error: string } {
@@ -77,9 +83,18 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
     if (isUploadingRef.current) return
 
     const filename = file.name.toLowerCase()
+    if (filename.endsWith('.ppt')) {
+      setError(LEGACY_PPT_MESSAGE)
+      return
+    }
+    if (filename.endsWith('.doc')) {
+      setError(LEGACY_DOC_MESSAGE)
+      return
+    }
+
     const isPDF = filename.endsWith('.pdf') || file.type === 'application/pdf'
-    const isPPTX = filename.endsWith('.pptx') || filename.endsWith('.ppt')
-    const isDOCX = filename.endsWith('.docx') || filename.endsWith('.doc')
+    const isPPTX = filename.endsWith('.pptx')
+    const isDOCX = filename.endsWith('.docx')
 
     if (!isPDF && !isPPTX && !isDOCX) {
       setError('Unsupported file type. Please upload a PDF, PowerPoint (.pptx), or Word (.docx) document.')
@@ -226,7 +241,7 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
           <input
             type="file"
             className="hidden"
-            accept=".pdf,.pptx,.ppt,.docx,.doc,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            accept=".pdf,.pptx,.docx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             onChange={handleFileChange}
             ref={fileInputRef}
             disabled={isUploading}
