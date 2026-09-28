@@ -6,12 +6,13 @@ router = APIRouter(prefix="/api/v1", tags=["Search"])
 
 @router.get("/search")
 def search(query: str = Query(...)):
-    
-    # 🔹 Step 1: Get similar chunks (4-tuple: score, content, doc_name, youtube_timestamp_url)
-    results = search_similar_chunks(query)
+
+    # 🔹 Step 1: Get similar chunks
+    # (score, content, doc_name, youtube_timestamp_url, source_type, source_url)
+    results = search_similar_chunks(query)[:3]
 
     # 🔹 Step 2: Build clean context (IMPORTANT)
-    context = "\n\n".join([content for score, content, doc_name, youtube_url in results[:3]])
+    context = "\n\n".join([r[1] for r in results])
 
     # 🔹 Step 3: Generate AI answer
     answer = generate_answer(query, context)
@@ -26,11 +27,9 @@ def search(query: str = Query(...)):
                 "content": content,
                 "document": doc_name,
                 "youtube_timestamp_url": youtube_url,
+                "source_type": source_type,
+                "source_url": source_url,
             }
-            for score, content, doc_name, youtube_url in results[:3]
+            for score, content, doc_name, youtube_url, source_type, source_url in results
         ],
     }
-
-
-
-    

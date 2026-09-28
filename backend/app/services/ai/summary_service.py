@@ -122,6 +122,13 @@ Exam Revision Summary:"""
         raise AIGenerationError(f"Failed to generate summary: {str(e)}") from e
 
 
+def append_source_link(summary: str, title: str, url: str) -> str:
+    """Add a 'Source: [title](url)' footer, built from stored data, never by the model."""
+    safe_title = re.sub(r"([\[\]\\])", r"\\\1", title.strip() or url)
+    safe_url = url.replace(" ", "%20").replace("(", "%28").replace(")", "%29")
+    return f"{summary.rstrip()}\n\n---\n\nSource: [{safe_title}]({safe_url})"
+
+
 # ─── YouTube summaries with timestamp citations ───
 #
 # The model never writes times itself. Each transcript chunk is labelled

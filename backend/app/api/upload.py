@@ -1,6 +1,7 @@
 import json
 import logging
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -16,6 +17,8 @@ from app.services.pdf.pdf_service import PDFService
 from app.services.ppt.ppt_service import PPTService
 from app.services.docx.docx_service import DOCXService
 from app.services.youtube.youtube_service import YouTubeService, YouTubeCaptionError
+from app.services.web.web_service import WebService
+from app.services.web.errors import WebPageError
 from app.services.rag.rag_service import RAGService
 from app.services.embedding_service import get_embeddings
 
@@ -30,6 +33,10 @@ MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB
 
 
 class YouTubeUploadRequest(BaseModel):
+    url: str
+
+
+class WebsiteUploadRequest(BaseModel):
     url: str
 
 
@@ -310,4 +317,46 @@ async def upload_youtube(payload: YouTubeUploadRequest, db: Session = Depends(ge
         source_url=url,
         metadata_json=json.dumps(segments[:100]),  # Sample segments for reference
         chunk_start_seconds=chunk_start_seconds,
+    )
+
+
+# Plain def (not async): fetching and extraction block, so FastAPI runs this in a worker thread.
+@router.post("/website")
+def upload_website(payload: WebsiteUploadRequest, db: Session = Depends(get_db)):
+    url = payload.url.strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="Please provide a web page link")
+
+    try:
+        page = WebService.fetch_page(url)
+        article = WebService.extract_article(page.html, page.url)
+    except WebPageError as e:
+        logger.info(f"Website import refused for '{url}': {e.code}")
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception as e:
+        logger.error(f"Unexpected error importing web page '{url}': {e}", exc_info=True)
+        raise HTTPException(
+            status_code=502,
+            detail="Could not import this web page right now, please try again",
+        )
+
+    chunks = RAGService.chunk_text(article.text)
+    if not chunks:
+        raise HTTPException(status_code=400, detail="No usable text chunks after processing")
+
+    return _store_document_and_chunks(
+        db=db,
+        file_id=str(uuid.uuid4()),
+        filename=article.title,
+        content=article.text,
+        chunks=chunks,
+        source_type="website",
+        source_url=page.url,
+        metadata_json=json.dumps({
+            "title": article.title,
+            "site_name": article.site_name,
+            "original_url": url,
+            "final_url": page.url,
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+        }),
     )

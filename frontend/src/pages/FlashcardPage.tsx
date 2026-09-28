@@ -15,6 +15,7 @@ import {
   FileText,
   FileEdit,
   Video,
+  Globe,
 } from 'lucide-react'
 import { getDocuments, getFlashcards, generateFlashcards } from '../api/client'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
@@ -171,6 +172,12 @@ export function FlashcardPage() {
           icon: <Video size={14} className="text-[#F87171]" />,
           label: 'YOUTUBE',
           style: 'text-[#F87171] bg-[rgba(248,113,113,0.2)] border border-[rgba(248,113,113,0.3)]',
+        }
+      case 'website':
+        return {
+          icon: <Globe size={14} className="text-[#22D3EE]" />,
+          label: 'WEB',
+          style: 'text-[#22D3EE] bg-[rgba(34,211,238,0.2)] border border-[rgba(34,211,238,0.3)]',
         }
       case 'pdf':
       default:

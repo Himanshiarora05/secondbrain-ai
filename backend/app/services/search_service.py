@@ -27,8 +27,8 @@ client = OpenAI(
 
 
 def search_similar_chunks(query: str, top_k: int = 5):
-    """Returns a list of (score, content, document_name, youtube_timestamp_url) tuples,
-    most similar first.
+    """Returns a list of (score, content, document_name, youtube_timestamp_url,
+    source_type, source_url) tuples, most similar first.
     """
     collection = get_collection()
     query_embedding = get_embedding(query)
@@ -50,14 +50,17 @@ def search_similar_chunks(query: str, top_k: int = 5):
         similarity = 1 - distance  # convert distance back to a similarity score
         doc_name = meta.get("filename", "Unknown")
         source_type = meta.get("source_type", "pdf")
+        source_url = meta.get("source_url") or None
         youtube_timestamp_url = None
 
         if source_type == "youtube":
             youtube_timestamp_url = YouTubeService.generate_timestamp_url(
-                meta.get("source_url", ""), meta.get("start_seconds")
+                source_url or "", meta.get("start_seconds")
             )
 
-        scored_results.append((float(similarity), content, doc_name, youtube_timestamp_url))
+        scored_results.append(
+            (float(similarity), content, doc_name, youtube_timestamp_url, source_type, source_url)
+        )
 
     return scored_results
 

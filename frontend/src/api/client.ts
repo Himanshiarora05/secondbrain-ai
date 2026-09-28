@@ -104,6 +104,28 @@ export async function uploadYouTube(
   return response.json()
 }
 
+export async function uploadWebsite(
+  url: string
+): Promise<UploadResult> {
+  const response = await fetch(
+    `${API_BASE_URL}/v1/upload/website`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ url }),
+    }
+  )
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}))
+    throw new Error(errData.detail || `Website import failed: ${response.status}`)
+  }
+
+  return response.json()
+}
+
 export async function getDocuments(): Promise<DocumentItem[]> {
   if (typeof window !== 'undefined') {
     const urlParams = new URLSearchParams(window.location.search)

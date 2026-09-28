@@ -6,6 +6,7 @@ import {
   FileText,
   FileEdit,
   Video,
+  Globe,
   ArrowRight,
   BookOpen,
 } from 'lucide-react'
@@ -61,6 +62,13 @@ export function FlashcardsHubPage() {
           bgColor: 'bg-[rgba(248,113,113,0.15)]',
           badgeText: 'YOUTUBE',
           badgeStyle: 'text-[#F87171] bg-[rgba(248,113,113,0.2)] border-[rgba(248,113,113,0.3)]',
+        }
+      case 'website':
+        return {
+          icon: <Globe size={18} className="text-[#22D3EE]" />,
+          bgColor: 'bg-[rgba(34,211,238,0.15)]',
+          badgeText: 'WEB',
+          badgeStyle: 'text-[#22D3EE] bg-[rgba(34,211,238,0.2)] border-[rgba(34,211,238,0.3)]',
         }
       case 'pdf':
       default:

@@ -51,6 +51,8 @@ export function HomePage() {
         return <span className="text-xs font-mono font-bold text-[#60A5FA]">DOC</span>
       case 'youtube':
         return <span className="text-xs font-mono font-bold text-[#F87171]">YT</span>
+      case 'website':
+        return <span className="text-xs font-mono font-bold text-[#22D3EE]">WEB</span>
       case 'pdf':
       default:
         return <span className="text-xs font-mono font-bold text-[#FB7185]">PDF</span>
@@ -65,6 +67,8 @@ export function HomePage() {
         return 'text-[#60A5FA] bg-[rgba(96,165,250,0.2)] border border-[rgba(96,165,250,0.3)]'
       case 'youtube':
         return 'text-[#F87171] bg-[rgba(248,113,113,0.2)] border border-[rgba(248,113,113,0.3)]'
+      case 'website':
+        return 'text-[#22D3EE] bg-[rgba(34,211,238,0.2)] border border-[rgba(34,211,238,0.3)]'
       case 'pdf':
       default:
         return 'text-[#FB7185] bg-[rgba(251,113,133,0.2)] border border-[rgba(251,113,133,0.3)]'

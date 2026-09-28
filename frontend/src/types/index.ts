@@ -9,6 +9,8 @@ export interface SourceMatch {
   content: string
   document: string
   youtube_timestamp_url?: string
+  source_type?: SourceType
+  source_url?: string
 }
 
 export interface SearchResult {
@@ -19,12 +21,14 @@ export interface SearchResult {
 
 // ─── Documents ───
 
+export type SourceType = 'pdf' | 'pptx' | 'docx' | 'youtube' | 'website'
+
 export interface DocumentItem {
   id: number
   file_id: string
   filename: string
   total_chunks: number
-  source_type?: 'pdf' | 'pptx' | 'docx' | 'youtube'
+  source_type?: SourceType
   source_url?: string
 }
 
