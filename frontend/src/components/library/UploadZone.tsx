@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Plus, Video, UploadCloud, ArrowRight, Globe, CheckCircle2, XCircle, MinusCircle, X, Layers } from 'lucide-react'
 import {
@@ -101,8 +101,16 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
   const [isMerging, setIsMerging] = useState(false)
   const [mergeError, setMergeError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const resultsRef = useRef<HTMLDivElement>(null)
   const isUploadingRef = useRef(false)
   const navigate = useNavigate()
+
+  // When a multi-file upload finishes, bring its results (and the merge offer)
+  // into view: below the drop area they're often under the fold.
+  const batchFinished = batch !== null && !isUploading
+  useEffect(() => {
+    if (batchFinished) resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [batchFinished])
 
   const uploadedIds = (batch ?? [])
     .filter((it) => it.status === 'done' && it.documentId !== undefined)
@@ -407,7 +415,7 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
         </div>
 
         {batch && !isUploading && (
-          <div className="mt-5 p-4 sm:p-5 rounded-2xl bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.08)] animate-fade-in" role="region" aria-label="Upload results">
+          <div ref={resultsRef} className="mt-5 p-4 sm:p-5 rounded-2xl bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.08)] animate-fade-in scroll-mt-6" role="region" aria-label="Upload results">
             <div className="flex items-start justify-between gap-3 mb-3">
               <p className="text-sm font-semibold text-white">
                 {(() => {
@@ -428,15 +436,21 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
             <ul className="space-y-2">
               {batch.map((it, i) => (
                 <li key={i} className="flex items-start gap-2.5 text-xs min-w-0">
+                  {/* The icons are decorative; the status is also in text for screen readers. */}
                   {it.status === 'done' ? (
-                    <CheckCircle2 size={15} className="text-[#34D399] flex-shrink-0 mt-px" aria-label="Uploaded" />
+                    <CheckCircle2 size={15} className="text-[#34D399] flex-shrink-0 mt-px" aria-hidden="true" />
                   ) : it.status === 'skipped' ? (
-                    <MinusCircle size={15} className="text-[#FBBF24] flex-shrink-0 mt-px" aria-label="Skipped" />
+                    <MinusCircle size={15} className="text-[#FBBF24] flex-shrink-0 mt-px" aria-hidden="true" />
                   ) : (
-                    <XCircle size={15} className="text-[#F87171] flex-shrink-0 mt-px" aria-label="Failed" />
+                    <XCircle size={15} className="text-[#F87171] flex-shrink-0 mt-px" aria-hidden="true" />
                   )}
                   <div className="min-w-0">
-                    <p className="text-[#D1D5DB] truncate" title={it.name}>{it.name}</p>
+                    <p className="text-[#D1D5DB] truncate" title={it.name}>
+                      <span className="sr-only">
+                        {it.status === 'done' ? 'Uploaded: ' : it.status === 'skipped' ? 'Skipped: ' : 'Failed: '}
+                      </span>
+                      {it.name}
+                    </p>
                     {it.message && (
                       <p className={it.status === 'skipped' ? 'text-[#FBBF24]' : 'text-[#F87171]'}>{it.message}</p>
                     )}
