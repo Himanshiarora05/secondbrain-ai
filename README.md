@@ -18,7 +18,7 @@ A study notes summarizer. Add your study material, and SecondBrain turns it into
 - **No duplicate links**: adding a web page or YouTube video that's already in your library is refused, with an "Open it" link to the saved copy. Different forms of the same link count as the same (`http`/`https`, `www.`, `#section` or tracking parameters for pages; `youtu.be`, `/shorts/` or `&t=` for videos). To re-import, delete the saved copy first.
 - **Clear AI errors**: if the AI service can't respond (out of credits, invalid API key, rate limit, the daily free-model limit, timeout, outage), the page says so in plain words. The technical details go to the backend log. Momentary failures, such as an overloaded provider, are retried automatically.
 
-Old `.ppt` and `.doc` files aren't supported; save them as `.pptx` / `.docx` first. Website import only reads public pages (no logins, paywalls, or JavaScript-only apps) up to 5 MB, and blocks local and private network addresses.
+Old `.ppt` and `.doc` files aren't supported; save them as `.pptx` / `.docx` first. Scanned PDFs (pages that are only images, with no selectable text) can't be read yet; run them through OCR first. Website import only reads public pages (no logins, paywalls, or JavaScript-only apps) up to 5 MB, and blocks local and private network addresses.
 
 ## How it's built
 
