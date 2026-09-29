@@ -6,17 +6,22 @@ the documents of an existing set returns that set instead of a copy.
 """
 
 import json
+from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.database.db import get_db
+from app.models.chunk import Chunk
 from app.models.document import Document
 from app.models.merged_set import MergedFlashcard, MergedSet, MergedSetDocument, MergedSummary
 from app.routes.documents import MAX_NAME_LENGTH
+from app.services.ai.flashcard_service import build_chunk_citations
+from app.services.ai.merged_service import MergedSource, generate_merged_summary
+from app.services.ai.summary_service import AIGenerationError
 
 router = APIRouter(prefix="/api/v1/merged-sets", tags=["Merged sets"])
 
@@ -220,3 +225,110 @@ def delete_merged_set(set_id: int, db: Session = Depends(get_db)):
     db.delete(merged)
     db.commit()
     return {"message": f"Merged set '{name}' deleted. Its documents were not changed.", "id": set_id}
+
+
+# ─── Merged summary ───
+
+
+def load_sources(db: Session, merged: MergedSet) -> List[MergedSource]:
+    """The set's current documents, in set order, with their chunks and per-chunk citations.
+
+    Sources are numbered 1..n over the current members, so after a member is
+    deleted a regenerated summary numbers the rest without a gap (its sources
+    list is rebuilt too). A document without chunks contributes its full text
+    as one block, cited by source number only.
+    """
+    members = (
+        db.query(MergedSetDocument.position, Document)
+        .join(Document, Document.id == MergedSetDocument.document_id)
+        .filter(MergedSetDocument.set_id == merged.id)
+        .order_by(MergedSetDocument.position.asc())
+        .all()
+    )
+    sources = []
+    for number, (_, doc) in enumerate(members, start=1):
+        rows = [
+            c for c in db.query(Chunk).filter(Chunk.document_id == doc.id).order_by(Chunk.id.asc()).all()
+            if c.content and c.content.strip()
+        ]
+        if rows:
+            chunks = [c.content for c in rows]
+            citations = build_chunk_citations(
+                doc.source_type or "pdf", doc.source_url, doc.filename,
+                [(c.content, c.start_seconds) for c in rows],
+                pages=[(c.page_start, c.page_end) for c in rows],
+            )
+        else:
+            chunks = [doc.content] if doc.content and doc.content.strip() else []
+            citations = [None] * len(chunks)
+        sources.append(MergedSource(
+            number=number, title=doc.filename, source_type=doc.source_type or "pdf",
+            source_url=doc.source_url, chunks=chunks, citations=citations, document_id=doc.id,
+        ))
+    return sources
+
+
+def _summary_dict(merged: MergedSet, summary: MergedSummary, member_ids: List[int]) -> dict:
+    ids = json.loads(summary.document_ids)
+    return {
+        "set_id": merged.id,
+        "summary": summary.content,
+        "created_at": summary.created_at.isoformat() if summary.created_at else None,
+        "stale": not set(ids) <= set(member_ids),
+    }
+
+
+@router.post("/{set_id}/summary")
+def create_merged_summary(
+    set_id: int,
+    regenerate: bool = Query(False, description="Replace the existing merged summary"),
+    db: Session = Depends(get_db),
+):
+    merged = _get_set(db, set_id)
+    existing = db.query(MergedSummary).filter(MergedSummary.set_id == set_id).first()
+    if existing and not regenerate:
+        return _summary_dict(merged, existing, _member_ids(db, set_id))
+
+    sources = load_sources(db, merged)
+    if len(sources) < MIN_DOCUMENTS:
+        raise HTTPException(
+            status_code=400,
+            detail="This set has fewer than 2 documents left, so there's nothing to merge. "
+                   "Create a new set from the Library instead.",
+        )
+    if not any(s.chunks for s in sources):
+        raise HTTPException(status_code=400, detail="These documents have no text to summarize.")
+
+    try:
+        content = generate_merged_summary(sources)
+    except AIGenerationError as e:
+        detail = f"{e} The existing merged summary was not changed." if existing else str(e)
+        raise HTTPException(status_code=502, detail=detail)
+
+    # Same pattern as per-document summaries: lock only around the save, and
+    # keep a summary another request saved meanwhile unless regenerating.
+    _lock_set(db, set_id)
+    existing = db.query(MergedSummary).filter(MergedSummary.set_id == set_id).first()
+    used_ids = json.dumps([s.document_id for s in sources])
+    if existing and not regenerate:
+        db.commit()
+    elif existing:
+        existing.content = content
+        existing.document_ids = used_ids
+        existing.created_at = datetime.utcnow()
+        db.commit()
+    else:
+        existing = MergedSummary(set_id=set_id, content=content, document_ids=used_ids)
+        db.add(existing)
+        db.commit()
+    db.refresh(existing)
+    return _summary_dict(merged, existing, _member_ids(db, set_id))
+
+
+@router.get("/{set_id}/summary")
+def get_merged_summary(set_id: int, db: Session = Depends(get_db)):
+    merged = _get_set(db, set_id)
+    summary = db.query(MergedSummary).filter(MergedSummary.set_id == set_id).first()
+    if not summary:
+        raise HTTPException(status_code=404, detail="No merged summary yet")
+    return _summary_dict(merged, summary, _member_ids(db, set_id))
