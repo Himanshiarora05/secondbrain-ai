@@ -28,7 +28,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database.db import Base
-from app.models import Document, Chunk, Flashcard, MergedFlashcard
+from app.models import Document, Chunk, Flashcard, MergedFlashcard, User
 from app.routes import merged_sets as ms
 from app.routes.merged_sets import CreateMergedSetRequest
 from app.services.ai import flashcard_service as fs
@@ -123,11 +123,17 @@ def fresh_db():
         conn.execute("PRAGMA foreign_keys=ON")
 
     Base.metadata.create_all(engine)
-    return sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    db = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    # The signed-in user the routes are called for; add_doc gives it every document.
+    owner = User(email="owner@example.com", password_hash="not-used")
+    db.add(owner)
+    db.commit()
+    db.info["user"] = owner
+    return db
 
 
 def add_doc(db, name, source_type, chunks, pages=None, starts=None, url=None):
-    doc = Document(file_id=f"f-{name}", filename=name, content=" ".join(chunks), source_type=source_type, source_url=url)
+    doc = Document(user_id=db.info["user"].id, file_id=f"f-{name}", filename=name, content=" ".join(chunks), source_type=source_type, source_url=url)
     db.add(doc)
     db.flush()
     for i, text in enumerate(chunks):
@@ -149,7 +155,7 @@ def library(db):
 
 def post(db, set_id, count=6):
     try:
-        return ms.create_merged_flashcards(set_id, count=count, db=db)
+        return ms.create_merged_flashcards(set_id, count=count, db=db, user=db.info["user"])
     except HTTPException as e:
         return e
 
@@ -157,8 +163,8 @@ def post(db, set_id, count=6):
 def test_route_generates_replaces_and_keeps_on_failure():
     db = fresh_db()
     pdf, ppt, vid = library(db)
-    set_id = ms.create_merged_set(CreateMergedSetRequest(document_ids=[pdf, ppt, vid]), db=db)["merged_set"]["id"]
-    assert ms.get_merged_flashcards(set_id, db=db) == {"set_id": set_id, "flashcards": [], "stale": False}
+    set_id = ms.create_merged_set(CreateMergedSetRequest(document_ids=[pdf, ppt, vid]), db=db, user=db.info["user"])["merged_set"]["id"]
+    assert ms.get_merged_flashcards(set_id, db=db, user=db.info["user"]) == {"set_id": set_id, "flashcards": [], "stale": False}
 
     with patch.object(fs, "client", FakeLLM()):
         first = post(db, set_id)
@@ -167,7 +173,7 @@ def test_route_generates_replaces_and_keeps_on_failure():
     labels = {c["source_label"] for c in cards}
     assert "Graph_PPT.pdf · p. 1" in labels and "quantum.pptx · Slide 1" in labels, labels
     assert any(c["source_url"] == f"{VIDEO}&t=5s" for c in cards)
-    assert ms.get_merged_set(set_id, db=db)["flashcard_count"] == 6
+    assert ms.get_merged_set(set_id, db=db, user=db.info["user"])["flashcard_count"] == 6
 
     with patch.object(fs, "client", FakeLLM(fail=RuntimeError("boom"))), patch.object(ss, "logger"):
         res = post(db, set_id)
@@ -184,13 +190,13 @@ def test_route_generates_replaces_and_keeps_on_failure():
 def test_deleted_member_marks_the_deck_stale():
     db = fresh_db()
     pdf, ppt, vid = library(db)
-    set_id = ms.create_merged_set(CreateMergedSetRequest(document_ids=[pdf, ppt, vid]), db=db)["merged_set"]["id"]
+    set_id = ms.create_merged_set(CreateMergedSetRequest(document_ids=[pdf, ppt, vid]), db=db, user=db.info["user"])["merged_set"]["id"]
     with patch.object(fs, "client", FakeLLM()):
         post(db, set_id)
     db.delete(db.get(Document, ppt))
     db.commit()
     db.expire_all()
-    deck = ms.get_merged_flashcards(set_id, db=db)
+    deck = ms.get_merged_flashcards(set_id, db=db, user=db.info["user"])
     assert deck["stale"] is True and len(deck["flashcards"]) == 6, "cards stay, unlinked"
     assert any(c["document_id"] is None and c["source_label"].startswith("quantum.pptx") for c in deck["flashcards"])
     with patch.object(fs, "client", FakeLLM()):

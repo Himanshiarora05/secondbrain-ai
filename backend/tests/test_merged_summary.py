@@ -28,7 +28,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database.db import Base
-from app.models import Document, Chunk, Summary, MergedSummary
+from app.models import Document, Chunk, Summary, MergedSummary, User
 from app.routes import merged_sets as ms
 from app.routes.merged_sets import CreateMergedSetRequest
 from app.services.ai import merged_service as mg
@@ -190,11 +190,17 @@ def fresh_db():
         conn.execute("PRAGMA foreign_keys=ON")
 
     Base.metadata.create_all(engine)
-    return sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    db = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    # The signed-in user the routes are called for; add_doc gives it every document.
+    owner = User(email="owner@example.com", password_hash="not-used")
+    db.add(owner)
+    db.commit()
+    db.info["user"] = owner
+    return db
 
 
 def add_doc(db, name, source_type, chunks, pages=None, starts=None, url=None):
-    doc = Document(file_id=f"f-{name}", filename=name, content=" ".join(chunks), source_type=source_type, source_url=url)
+    doc = Document(user_id=db.info["user"].id, file_id=f"f-{name}", filename=name, content=" ".join(chunks), source_type=source_type, source_url=url)
     db.add(doc)
     db.flush()
     for i, text in enumerate(chunks):
@@ -216,7 +222,7 @@ def library(db):
 
 def post(db, set_id, regenerate=False):
     try:
-        return ms.create_merged_summary(set_id, regenerate=regenerate, db=db)
+        return ms.create_merged_summary(set_id, regenerate=regenerate, db=db, user=db.info["user"])
     except HTTPException as e:
         return e
 
@@ -224,9 +230,9 @@ def post(db, set_id, regenerate=False):
 def test_route_generates_saves_and_reuses():
     db = fresh_db()
     pdf, ppt, vid = library(db)
-    set_id = ms.create_merged_set(CreateMergedSetRequest(document_ids=[pdf, ppt, vid]), db=db)["merged_set"]["id"]
+    set_id = ms.create_merged_set(CreateMergedSetRequest(document_ids=[pdf, ppt, vid]), db=db, user=db.info["user"])["merged_set"]["id"]
     try:
-        ms.get_merged_summary(set_id, db=db)
+        ms.get_merged_summary(set_id, db=db, user=db.info["user"])
         raise AssertionError("expected 404 before generating")
     except HTTPException as e:
         assert e.status_code == 404
@@ -250,13 +256,13 @@ def test_route_generates_saves_and_reuses():
     assert regenerated.endswith("- New version (1: pp. 2–3)"), regenerated
     assert db.query(MergedSummary).count() == 1 and db.query(MergedSummary).one().content == regenerated
     assert db.query(Summary).one().content == "the PDF's own summary", "the document's own summary is untouched"
-    assert ms.get_merged_set(set_id, db=db)["has_summary"] is True
+    assert ms.get_merged_set(set_id, db=db, user=db.info["user"])["has_summary"] is True
 
 
 def test_failure_keeps_the_existing_summary():
     db = fresh_db()
     pdf, ppt, _ = library(db)
-    set_id = ms.create_merged_set(CreateMergedSetRequest(document_ids=[pdf, ppt]), db=db)["merged_set"]["id"]
+    set_id = ms.create_merged_set(CreateMergedSetRequest(document_ids=[pdf, ppt]), db=db, user=db.info["user"])["merged_set"]["id"]
     with patch.object(ss, "client", FakeLLM(final="- First [S0]")):
         first = post(db, set_id)["summary"]
     with patch.object(ss, "client", FakeLLM(fail=RuntimeError("boom"))), patch.object(ss, "logger"):
@@ -269,14 +275,14 @@ def test_failure_keeps_the_existing_summary():
 def test_deleted_member_makes_it_stale_until_regenerated():
     db = fresh_db()
     pdf, ppt, vid = library(db)
-    set_id = ms.create_merged_set(CreateMergedSetRequest(document_ids=[pdf, ppt, vid]), db=db)["merged_set"]["id"]
+    set_id = ms.create_merged_set(CreateMergedSetRequest(document_ids=[pdf, ppt, vid]), db=db, user=db.info["user"])["merged_set"]["id"]
     with patch.object(ss, "client", FakeLLM(final="- Gates [S3]")):
         post(db, set_id)
     db.delete(db.get(Document, pdf))
     db.commit()
     db.expire_all()
-    assert ms.get_merged_summary(set_id, db=db)["stale"] is True
-    assert ms.get_merged_set(set_id, db=db)["summary_stale"] is True
+    assert ms.get_merged_summary(set_id, db=db, user=db.info["user"])["stale"] is True
+    assert ms.get_merged_set(set_id, db=db, user=db.info["user"])["summary_stale"] is True
     with patch.object(ss, "client", FakeLLM(final="- Gates [S1]")):
         res = post(db, set_id, regenerate=True)
     assert res["stale"] is False

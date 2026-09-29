@@ -21,6 +21,11 @@ os.environ["CHROMA_DIR"] = tempfile.mkdtemp(prefix="sb-test-chroma-")
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
 os.environ["HF_HUB_OFFLINE"] = "1"
 
+from types import SimpleNamespace
+
+# The signed-in user the route functions are called for (routes take it from get_current_user).
+TEST_USER = SimpleNamespace(id=1)
+
 from app.services.ai import flashcard_service as fs
 from app.routes import study
 from app.models.chunk import Chunk
@@ -225,7 +230,7 @@ def test_route_saves_and_returns_citations():
     db = _mock_db(doc, chunk_rows, saved)
     client, _ = _fake_llm(_one_card_per_label)
     with patch.object(fs, "client", client):
-        result = study.create_flashcards(5, count=5, db=db)
+        result = study.create_flashcards(5, count=5, db=db, user=TEST_USER)
 
     assert [(c.source_label, c.source_url) for c in saved] == [
         ("00:00", VIDEO + "&t=0s"), ("02:05", VIDEO + "&t=125s"),
@@ -242,7 +247,7 @@ def test_route_without_chunks_falls_back_to_document_text():
     saved = []
     db = _mock_db(doc, [], saved)
     with patch.object(study, "generate_flashcards", return_value=[{"question": "Q?", "answer": "A."}]) as old:
-        result = study.create_flashcards(6, count=3, db=db)
+        result = study.create_flashcards(6, count=3, db=db, user=TEST_USER)
     old.assert_called_once_with("Some old document text.", count=3)
     assert result["flashcards"][0]["source_label"] is None and result["flashcards"][0]["source_url"] is None
 

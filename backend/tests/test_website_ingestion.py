@@ -37,6 +37,11 @@ socket.getaddrinfo = _no_network
 import httpx
 from fastapi import HTTPException
 
+from types import SimpleNamespace
+
+# The signed-in user the route functions are called for (routes take it from get_current_user).
+TEST_USER = SimpleNamespace(id=1)
+
 from app.services.web import url_safety
 from app.services.web.errors import WebPageError
 from app.services.web.url_safety import SafeNetworkBackend, check_url
@@ -446,7 +451,7 @@ def _call_upload(url, fetch_result=None, fetch_error=None, saved=()):
                       side_effect=fetch_error, return_value=fetch_result or fetched) as fetch, \
          patch.object(upload, "_store_document_and_chunks", return_value={"status": "stored"}) as store, \
          patch.object(upload, "logger"):
-        result = upload.upload_website(upload.WebsiteUploadRequest(url=url), db=db)
+        result = upload.upload_website(upload.WebsiteUploadRequest(url=url), db=db, user=TEST_USER)
     return result, fetch, store
 
 
@@ -550,7 +555,7 @@ def test_endpoint_maps_errors_to_http():
             raise AssertionError(f"expected HTTPException for {error!r}")
 
     try:
-        upload.upload_website(upload.WebsiteUploadRequest(url="   "), db=MagicMock())
+        upload.upload_website(upload.WebsiteUploadRequest(url="   "), db=MagicMock(), user=TEST_USER)
     except HTTPException as e:
         assert e.status_code == 400
     else:
@@ -574,7 +579,7 @@ def test_search_returns_source_url_for_websites():
     }
     with patch.object(search_service, "get_collection", return_value=collection), \
          patch.object(search_service, "get_embedding", return_value=[0.0]):
-        results = search_service.search_similar_chunks("light reactions")
+        results = search_service.search_similar_chunks("light reactions", TEST_USER.id)
     web, video = results
     assert web[2:] == ("Photosynthesis Explained", None, "website", "https://www.example.com/article", None)
     assert video[3] == "https://www.youtube.com/watch?v=abcdefghijk&t=46s" and video[4] == "youtube"
@@ -603,7 +608,7 @@ def test_website_summary_gets_source_line():
     db.query.side_effect = query
     db.refresh.side_effect = lambda obj: None
     with patch.object(study, "generate_summary", return_value="## Notes\n- point"):
-        result = study.create_or_regenerate_summary(7, regenerate=False, db=db)
+        result = study.create_or_regenerate_summary(7, regenerate=False, db=db, user=TEST_USER)
     assert result["summary"].endswith(
         "Source: [Photosynthesis Explained](https://www.example.com/article)"
     ), result["summary"]

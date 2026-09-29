@@ -28,6 +28,11 @@ import httpx
 from fastapi import HTTPException
 from openai import OpenAI
 
+from types import SimpleNamespace
+
+# The signed-in user the route functions are called for (routes take it from get_current_user).
+TEST_USER = SimpleNamespace(id=1)
+
 from app.services.ai import summary_service as ss
 
 ss.RETRY_DELAY_SECONDS = 0  # overloads are retried; no need to wait in tests
@@ -123,7 +128,7 @@ def test_search_explains_an_overloaded_provider():
     with patch.object(search_service, "client", client), patch.object(ss, "logger"), \
          patch.object(search_route, "search_similar_chunks", return_value=[(0.9, "text", "doc", None, "pdf", None, "p. 1")]):
         try:
-            search_route.search(query="What is a graph?")
+            search_route.search(query="What is a graph?", user=TEST_USER)
         except HTTPException as e:
             assert e.status_code == 502 and "having problems right now" in e.detail, e.detail
         else:

@@ -26,6 +26,11 @@ from docx import Document as WordDocument
 from fastapi import HTTPException, UploadFile
 from pptx import Presentation
 
+from types import SimpleNamespace
+
+# The signed-in user the route functions are called for (routes take it from get_current_user).
+TEST_USER = SimpleNamespace(id=1)
+
 from app.api import upload
 
 STORED = {"status": "stored"}
@@ -73,7 +78,7 @@ def call(endpoint, filename, data, store=STORED, patches=()):
         for target, attr, value in patches:
             patch.object(target, attr, value).start()
         try:
-            result = asyncio.run(endpoint(file=file, db=MagicMock()))
+            result = asyncio.run(endpoint(file=file, db=MagicMock(), user=TEST_USER))
         except HTTPException as e:
             result = e
         finally:

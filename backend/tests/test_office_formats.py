@@ -24,6 +24,11 @@ from docx import Document as WordDocument
 from fastapi import HTTPException, UploadFile
 from pptx import Presentation
 
+from types import SimpleNamespace
+
+# The signed-in user the route functions are called for (routes take it from get_current_user).
+TEST_USER = SimpleNamespace(id=1)
+
 from app.api import upload
 
 OLE_BYTES = upload.OLE_SIGNATURE + b"\x00" * 504  # start of an OLE compound file
@@ -58,7 +63,7 @@ def _call(endpoint, filename, data):
     with patch.object(upload, "UPLOAD_DIR", tmp), \
          patch.object(upload, "_store_document_and_chunks", return_value={"status": "stored"}) as store:
         try:
-            result = asyncio.run(endpoint(file=file, db=MagicMock()))
+            result = asyncio.run(endpoint(file=file, db=MagicMock(), user=TEST_USER))
         except HTTPException as e:
             result = e
     return result, list(tmp.iterdir()), store

@@ -4,10 +4,13 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from app.database.db import SessionLocal, get_db
+from app.database.db import get_db
 from app.database.chroma import get_collection
 from app.models.document import Document
 from app.models.chunk import Chunk
+from app.models.user import User
+from app.services.auth_service import get_current_user
+from app.services.ownership import owned_document
 
 logger = logging.getLogger(__name__)
 
@@ -19,40 +22,35 @@ MAX_NAME_LENGTH = 255
 
 
 @router.get("/documents")
-def list_documents():
-    db = SessionLocal()
-
-    try:
-        # Query documents with their chunk counts
-        results = (
-            db.query(
-                Document.id,
-                Document.file_id,
-                Document.filename,
-                Document.source_type,
-                Document.source_url,
-                func.count(Chunk.id).label("total_chunks"),
-            )
-            .outerjoin(Chunk, Chunk.document_id == Document.id)
-            .group_by(Document.id)
-            .order_by(Document.id)
-            .all()
+def list_documents(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    # The user's documents with their chunk counts
+    results = (
+        db.query(
+            Document.id,
+            Document.file_id,
+            Document.filename,
+            Document.source_type,
+            Document.source_url,
+            func.count(Chunk.id).label("total_chunks"),
         )
+        .outerjoin(Chunk, Chunk.document_id == Document.id)
+        .filter(Document.user_id == user.id)
+        .group_by(Document.id)
+        .order_by(Document.id)
+        .all()
+    )
 
-        return [
-            {
-                "id": row.id,
-                "file_id": row.file_id,
-                "filename": row.filename,
-                "source_type": row.source_type or "pdf",
-                "source_url": row.source_url,
-                "total_chunks": row.total_chunks,
-            }
-            for row in results
-        ]
-
-    finally:
-        db.close()
+    return [
+        {
+            "id": row.id,
+            "file_id": row.file_id,
+            "filename": row.filename,
+            "source_type": row.source_type or "pdf",
+            "source_url": row.source_url,
+            "total_chunks": row.total_chunks,
+        }
+        for row in results
+    ]
 
 
 class RenameRequest(BaseModel):
@@ -60,7 +58,9 @@ class RenameRequest(BaseModel):
 
 
 @router.patch("/documents/{document_id}")
-def rename_document(document_id: int, body: RenameRequest, db: Session = Depends(get_db)):
+def rename_document(
+    document_id: int, body: RenameRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
     """Change a document's display name. Search results show the name stored in
     Chroma metadata, so the document's vectors are updated too: Chroma first,
     then the database, and Chroma is put back if the database write fails."""
@@ -70,9 +70,7 @@ def rename_document(document_id: int, body: RenameRequest, db: Session = Depends
     if len(name) > MAX_NAME_LENGTH:
         raise HTTPException(status_code=400, detail=f"The name can be at most {MAX_NAME_LENGTH} characters.")
 
-    doc = db.query(Document).filter(Document.id == document_id).first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+    doc = owned_document(db, document_id, user)
     if name == doc.filename:
         return {"id": doc.id, "filename": doc.filename}
 
@@ -98,10 +96,8 @@ def rename_document(document_id: int, body: RenameRequest, db: Session = Depends
 
 
 @router.delete("/documents/{document_id}")
-def delete_document(document_id: int, db: Session = Depends(get_db)):
-    doc = db.query(Document).filter(Document.id == document_id).first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+def delete_document(document_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    doc = owned_document(db, document_id, user)
 
     file_id = doc.file_id
     filename = doc.filename

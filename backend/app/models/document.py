@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text
+from sqlalchemy import Column, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 from app.database.db import Base
 
@@ -13,6 +13,10 @@ class Document(Base):
     source_type = Column(String, default="pdf", nullable=False)
     source_url = Column(String, nullable=True)
     metadata_json = Column(Text, nullable=True)
+    # Owner. Every endpoint only sees the signed-in user's documents. Null for
+    # documents from before accounts existed, until
+    # scripts/assign_documents_to_user.py gives them to an account.
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
     chunks = relationship(
         "Chunk", back_populates="document", cascade="all, delete-orphan"

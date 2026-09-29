@@ -27,7 +27,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database.db import Base
-from app.models import Document, Chunk, Summary, Flashcard, MergedSet, MergedSetDocument, MergedSummary, MergedFlashcard
+from app.models import Document, Chunk, Summary, Flashcard, MergedSet, MergedSetDocument, MergedSummary, MergedFlashcard, User
 from app.routes import merged_sets as ms
 from app.routes.merged_sets import CreateMergedSetRequest, RenameMergedSetRequest
 
@@ -40,11 +40,17 @@ def fresh_db():
         conn.execute("PRAGMA foreign_keys=ON")
 
     Base.metadata.create_all(engine)
-    return sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    db = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    # The signed-in user the routes are called for; add_doc gives it every document.
+    owner = User(email="owner@example.com", password_hash="not-used")
+    db.add(owner)
+    db.commit()
+    db.info["user"] = owner
+    return db
 
 
 def add_doc(db, name, chars=1000, source_type="pdf"):
-    doc = Document(file_id=f"f-{name}", filename=name, content="x" * chars, source_type=source_type)
+    doc = Document(user_id=db.info["user"].id, file_id=f"f-{name}", filename=name, content="x" * chars, source_type=source_type)
     db.add(doc)
     db.commit()
     return doc.id
@@ -58,7 +64,7 @@ def call(fn, *args, **kwargs):
 
 
 def create(db, ids, name=None):
-    return call(ms.create_merged_set, CreateMergedSetRequest(document_ids=ids, name=name), db=db)
+    return call(ms.create_merged_set, CreateMergedSetRequest(document_ids=ids, name=name), db=db, user=db.info["user"])
 
 
 def test_create_names_and_orders_the_set():
@@ -126,12 +132,12 @@ def test_list_get_rename():
     a, b, c = add_doc(db, "a.pdf"), add_doc(db, "b.pdf"), add_doc(db, "c.pdf")
     older = create(db, [a, b])["merged_set"]["id"]
     newer = create(db, [a, c])["merged_set"]["id"]
-    assert [s["id"] for s in ms.list_merged_sets(db=db)] == [newer, older], "newest first"
-    assert ms.get_merged_set(older, db=db)["name"] == "a.pdf + b.pdf"
-    assert ms.rename_merged_set(older, RenameMergedSetRequest(name=" Week 3 "), db=db)["name"] == "Week 3"
-    assert call(ms.rename_merged_set, older, RenameMergedSetRequest(name=" "), db=db).status_code == 400
-    assert call(ms.get_merged_set, 999, db=db).status_code == 404
-    assert call(ms.rename_merged_set, 999, RenameMergedSetRequest(name="x"), db=db).status_code == 404
+    assert [s["id"] for s in ms.list_merged_sets(db=db, user=db.info["user"])] == [newer, older], "newest first"
+    assert ms.get_merged_set(older, db=db, user=db.info["user"])["name"] == "a.pdf + b.pdf"
+    assert ms.rename_merged_set(older, RenameMergedSetRequest(name=" Week 3 "), db=db, user=db.info["user"])["name"] == "Week 3"
+    assert call(ms.rename_merged_set, older, RenameMergedSetRequest(name=" "), db=db, user=db.info["user"]).status_code == 400
+    assert call(ms.get_merged_set, 999, db=db, user=db.info["user"]).status_code == 404
+    assert call(ms.rename_merged_set, 999, RenameMergedSetRequest(name="x"), db=db, user=db.info["user"]).status_code == 404
 
 
 def test_deleting_a_set_leaves_documents_and_their_study_material_alone():
@@ -142,13 +148,13 @@ def test_deleting_a_set_leaves_documents_and_their_study_material_alone():
     db.add_all([MergedSummary(set_id=set_id, content="merged", document_ids=json.dumps([a, b])),
                 MergedFlashcard(set_id=set_id, document_id=a, question="MQ", answer="MA")])
     db.commit()
-    res = ms.delete_merged_set(set_id, db=db)
+    res = ms.delete_merged_set(set_id, db=db, user=db.info["user"])
     assert "not changed" in res["message"]
     assert db.query(MergedSet).count() == 0
     assert db.query(MergedSetDocument).count() == db.query(MergedSummary).count() == db.query(MergedFlashcard).count() == 0
     assert db.query(Document).count() == 2
     assert db.query(Summary).one().content == "own summary" and db.query(Flashcard).count() == 1
-    assert call(ms.delete_merged_set, set_id, db=db).status_code == 404
+    assert call(ms.delete_merged_set, set_id, db=db, user=db.info["user"]).status_code == 404
 
 
 def test_deleted_document_leaves_the_set_readable_but_stale():
@@ -162,7 +168,7 @@ def test_deleted_document_leaves_the_set_readable_but_stale():
     db.delete(db.get(Document, b))
     db.commit()
     db.expire_all()
-    s = ms.get_merged_set(set_id, db=db)
+    s = ms.get_merged_set(set_id, db=db, user=db.info["user"])
     assert [d["id"] for d in s["documents"]] == [a, c], "membership went with the document"
     assert s["has_summary"] and s["summary_stale"] and s["flashcards_stale"] and s["flashcard_count"] == 2
     card = db.query(MergedFlashcard).filter(MergedFlashcard.question == "Q").one()

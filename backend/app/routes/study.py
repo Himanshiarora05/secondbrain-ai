@@ -7,6 +7,9 @@ from app.models.chunk import Chunk
 from app.models.document import Document
 from app.models.summary import Summary
 from app.models.flashcard import Flashcard
+from app.models.user import User
+from app.services.auth_service import get_current_user
+from app.services.ownership import owned_document
 from app.services.ai.summary_service import (
     generate_summary,
     generate_cited_summary,
@@ -36,10 +39,9 @@ def create_or_regenerate_summary(
     document_id: int,
     regenerate: bool = Query(False, description="Force regeneration of summary even if one exists"),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    doc = db.query(Document).filter(Document.id == document_id).first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+    doc = owned_document(db, document_id, user)
 
     existing_summary = db.query(Summary).filter(Summary.document_id == document_id).first()
 
@@ -128,10 +130,9 @@ def create_or_regenerate_summary(
 def get_document_summary(
     document_id: int,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    doc = db.query(Document).filter(Document.id == document_id).first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+    doc = owned_document(db, document_id, user)
 
     summary = db.query(Summary).filter(Summary.document_id == document_id).first()
     if not summary:
@@ -148,10 +149,9 @@ def create_flashcards(
     document_id: int,
     count: int = Query(10, ge=1, le=50, description="Number of flashcards to generate"),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    doc = db.query(Document).filter(Document.id == document_id).first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+    doc = owned_document(db, document_id, user)
 
     if not doc.content or not doc.content.strip():
         raise HTTPException(status_code=400, detail="Document has no content to generate flashcards")
@@ -220,10 +220,9 @@ def create_flashcards(
 def get_document_flashcards(
     document_id: int,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    doc = db.query(Document).filter(Document.id == document_id).first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+    doc = owned_document(db, document_id, user)
 
     cards = db.query(Flashcard).filter(Flashcard.document_id == document_id).order_by(Flashcard.id.asc()).all()
 

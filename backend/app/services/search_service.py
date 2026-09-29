@@ -29,9 +29,11 @@ client = OpenAI(
 )
 
 
-def search_similar_chunks(query: str, top_k: int = 5):
-    """Returns a list of (score, content, document_name, youtube_timestamp_url,
-    source_type, source_url, location) tuples, most similar first.
+def search_similar_chunks(query: str, user_id: int, top_k: int = 5):
+    """The user's chunks most similar to `query`, as a list of (score, content,
+    document_name, youtube_timestamp_url, source_type, source_url, location)
+    tuples, most similar first. Only chunks whose metadata has this user_id are
+    searched (set at upload, or by scripts/assign_documents_to_user.py).
 
     location is a short citation for the match: "02:05" for YouTube, "p. 12"
     / "pp. 12–13" for PDFs with page ranges, otherwise None.
@@ -42,6 +44,7 @@ def search_similar_chunks(query: str, top_k: int = 5):
     results = collection.query(
         query_embeddings=[query_embedding],
         n_results=top_k,
+        where={"user_id": user_id},
     )
 
     if not results["ids"] or not results["ids"][0]:

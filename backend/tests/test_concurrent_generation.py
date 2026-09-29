@@ -23,6 +23,11 @@ os.environ["CHROMA_DIR"] = tempfile.mkdtemp(prefix="sb-test-chroma-")
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
 os.environ["HF_HUB_OFFLINE"] = "1"
 
+from types import SimpleNamespace
+
+# The signed-in user the route functions are called for (routes take it from get_current_user).
+TEST_USER = SimpleNamespace(id=1)
+
 from app.routes import study
 from app.models.chunk import Chunk
 from app.models.document import Document
@@ -89,7 +94,7 @@ def test_summary_saved_by_another_request_is_kept_not_duplicated():
     other = MagicMock(content="Summary saved first by the other request")
     db = FakeDB(_doc(), summaries=[None, other])  # none at start, one after generating
     with patch.object(study, "generate_summary", return_value="My late summary"):
-        result = study.create_or_regenerate_summary(7, regenerate=False, db=db)
+        result = study.create_or_regenerate_summary(7, regenerate=False, db=db, user=TEST_USER)
     assert result["summary"] == "Summary saved first by the other request"
     assert not db.added, f"must not insert a second summary: {db.log}"
     assert db.log.index("lock") < db.log.index("read summary", 1), db.log  # re-read happens under the lock
@@ -99,7 +104,7 @@ def test_regenerate_overwrites_a_summary_saved_meanwhile():
     other = MagicMock(content="old")
     db = FakeDB(_doc(), summaries=[None, other])
     with patch.object(study, "generate_summary", return_value="Fresh summary"):
-        result = study.create_or_regenerate_summary(7, regenerate=True, db=db)
+        result = study.create_or_regenerate_summary(7, regenerate=True, db=db, user=TEST_USER)
     assert result["summary"] == "Fresh summary" and other.content == "Fresh summary"
     assert not db.added
 
@@ -107,7 +112,7 @@ def test_regenerate_overwrites_a_summary_saved_meanwhile():
 def test_first_summary_is_inserted_under_the_lock():
     db = FakeDB(_doc(), summaries=[None, None])
     with patch.object(study, "generate_summary", return_value="First summary"):
-        result = study.create_or_regenerate_summary(7, regenerate=False, db=db)
+        result = study.create_or_regenerate_summary(7, regenerate=False, db=db, user=TEST_USER)
     assert result["summary"] == "First summary"
     assert db.log == ["read summary", "lock", "read summary", "add Summary", "commit"], db.log
 
@@ -120,14 +125,14 @@ def test_llm_is_not_called_under_the_lock():
         return "Summary"
 
     with patch.object(study, "generate_summary", side_effect=generate):
-        study.create_or_regenerate_summary(7, regenerate=False, db=db)
+        study.create_or_regenerate_summary(7, regenerate=False, db=db, user=TEST_USER)
 
 
 def test_flashcard_replace_locks_before_deleting():
     db = FakeDB(_doc(), chunks=[])  # no chunks: falls back to generate_flashcards(doc.content)
     cards = [{"question": "Q1?", "answer": "A1."}, {"question": "Q2?", "answer": "A2."}]
     with patch.object(study, "generate_flashcards", return_value=cards):
-        result = study.create_flashcards(7, count=2, db=db)
+        result = study.create_flashcards(7, count=2, db=db, user=TEST_USER)
     assert db.log == ["lock", "delete cards", "add 2 cards", "commit"], db.log
     assert [c["question"] for c in result["flashcards"]] == ["Q1?", "Q2?"]
 
