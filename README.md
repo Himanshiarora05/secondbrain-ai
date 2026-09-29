@@ -4,7 +4,7 @@ A study notes summarizer. Add your study material, and SecondBrain turns it into
 
 ## What it does
 
-- **Add sources**: PDF, PowerPoint (`.pptx`), Word (`.docx`), YouTube videos (with captions), and website links.
+- **Add sources**: PDF, PowerPoint (`.pptx`), Word (`.docx`), YouTube videos (with captions), and website links. You can pick or drop several files at once. Each becomes its own document, and afterwards the app offers to make a merged set from them straight away.
 - **Summaries**: exam-revision notes for each source.
   - YouTube summaries link every point to its moment in the video (`[02:05]`).
   - PDF summaries cite the page of every point (`(p. 12)`, `(pp. 12–13)`), PowerPoint summaries the slide (`(Slide 4)`).
