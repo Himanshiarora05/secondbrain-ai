@@ -161,8 +161,9 @@ export function LibraryPage() {
     return () => window.removeEventListener('keydown', onKey)
   }, [selecting])
 
-  const handleUploadSuccess = () => {
-    setShowUpload(false)
+  const handleUploadSuccess = (info?: { multiple: boolean }) => {
+    // After a multi-file upload the panel shows per-file results and the merge offer.
+    if (!info?.multiple) setShowUpload(false)
     fetchDocuments()
   }
 
