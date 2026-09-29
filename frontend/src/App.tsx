@@ -19,6 +19,8 @@ function App() {
           <Route path="library" element={<LibraryPage />} />
           <Route path="library/:documentId/summary" element={<SummaryPage />} />
           <Route path="library/:documentId/flashcards" element={<FlashcardPage />} />
+          <Route path="library/merged/:setId/summary" element={<SummaryPage merged />} />
+          <Route path="library/merged/:setId/flashcards" element={<FlashcardPage merged />} />
           <Route path="flashcards" element={<FlashcardsHubPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

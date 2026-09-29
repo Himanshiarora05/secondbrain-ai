@@ -10,18 +10,26 @@ import {
   ArrowRight,
   BookOpen,
 } from 'lucide-react'
-import { getDocuments } from '../api/client'
+import { getDocuments, listMergedSets } from '../api/client'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { EmptyState } from '../components/ui/EmptyState'
-import type { DocumentItem } from '../types'
+import { sourceBadge } from '../components/library/sourceBadge'
+import type { DocumentItem, MergedSet } from '../types'
 
 export function FlashcardsHubPage() {
   const [documents, setDocuments] = useState<DocumentItem[]>([])
+  const [mergedSets, setMergedSets] = useState<MergedSet[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let isMounted = true
+    // Merged decks are extra: if they fail to load, the document decks still show.
+    listMergedSets()
+      .then((sets) => {
+        if (isMounted) setMergedSets(sets)
+      })
+      .catch(() => {})
     getDocuments()
       .then((docs) => {
         if (isMounted) {
@@ -120,6 +128,76 @@ export function FlashcardsHubPage() {
           }
         />
       ) : (
+        <>
+        {mergedSets.length > 0 && (
+          <section className="mb-10" aria-labelledby="merged-decks-heading">
+            <h2 id="merged-decks-heading" className="flex items-center gap-2 text-sm font-semibold text-white mb-4">
+              <Layers size={16} className="text-[#C4B5FD]" />
+              Merged decks
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {mergedSets.map((set) => (
+                <div
+                  key={set.id}
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(167, 139, 250, 0.07) 0%, rgba(255, 255, 255, 0.015) 100%)',
+                  }}
+                  className="p-7 rounded-3xl backdrop-blur-xl border border-[rgba(167,139,250,0.2)] hover:border-[rgba(167,139,250,0.45)] hover:shadow-[0_0_28px_rgba(167,139,250,0.15)] transition-all duration-300 flex flex-col justify-between group"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                      <div className="w-11 h-11 rounded-2xl bg-[rgba(167,139,250,0.15)] flex items-center justify-center border border-[rgba(255,255,255,0.05)] text-[#C4B5FD]">
+                        <Layers size={18} />
+                      </div>
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border text-[#C4B5FD] bg-[rgba(167,139,250,0.2)] border-[rgba(167,139,250,0.3)]">
+                        MERGED
+                      </span>
+                    </div>
+                    <h3 className="text-base font-semibold text-white tracking-tight truncate group-hover:text-[#C4B5FD] transition-colors duration-200 mb-2" title={set.name}>
+                      {set.name}
+                    </h3>
+                    <div className="flex items-center gap-2 text-xs text-[#A1A1AA] font-mono flex-wrap">
+                      <span>{set.documents.length} sources</span>
+                      <span className="flex items-center gap-1">
+                        {[...new Set(set.documents.map((d) => d.source_type))].map((t) => (
+                          <span key={t}>{sourceBadge(t, 12).icon}</span>
+                        ))}
+                      </span>
+                      <span>•</span>
+                      {set.flashcard_count > 0 ? (
+                        <span className="text-[#34D399]">{set.flashcard_count} cards</span>
+                      ) : (
+                        <span>Not generated yet</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between pt-6 mt-6 border-t border-[rgba(255,255,255,0.06)]">
+                    <Link
+                      to={`/library/merged/${set.id}/summary`}
+                      className="inline-flex items-center gap-1.5 text-xs font-medium text-[#A1A1AA] hover:text-white px-2.5 py-1.5 rounded-lg hover:bg-[rgba(255,255,255,0.06)] transition-all duration-200"
+                    >
+                      <BookOpen size={14} className="text-[#71717A]" />
+                      <span>View Summary</span>
+                    </Link>
+                    <Link
+                      to={`/library/merged/${set.id}/flashcards`}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-[#3B82F6] to-[#1D4ED8] text-white shadow-[0_0_18px_rgba(59,130,246,0.35)] hover:shadow-[0_0_24px_rgba(59,130,246,0.5)] hover:brightness-110 transition-all duration-200"
+                    >
+                      <span>Study Deck</span>
+                      <ArrowRight size={13} />
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+        {mergedSets.length > 0 && (
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-white mb-4">
+            <FileText size={16} className="text-[#93C5FD]" />
+            Document decks
+          </h2>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {documents.map((doc) => {
             const badge = getSourceBadge(doc.source_type)
@@ -182,6 +260,7 @@ export function FlashcardsHubPage() {
             )
           })}
         </div>
+        </>
       )}
     </div>
   )

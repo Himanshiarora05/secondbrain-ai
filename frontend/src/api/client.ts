@@ -1,4 +1,4 @@
-import type { SearchResult, DocumentItem, UploadResult, HealthStatus, Summary, FlashcardsResponse } from '../types'
+import type { SearchResult, DocumentItem, UploadResult, HealthStatus, Summary, FlashcardsResponse, MergedSet, CreateMergedSetResult, MergedSummary, MergedFlashcardsResponse } from '../types'
 
 const API_BASE_URL = '/api'
 
@@ -288,4 +288,89 @@ async function requestFlashcards(documentId: number, count: number): Promise<Fla
   }
 
   return response.json()
+}
+// ─── Merged sets ───
+
+async function detailError(response: Response, fallback: string): Promise<Error> {
+  const errData = await response.json().catch(() => ({}))
+  return new Error(typeof errData.detail === 'string' && errData.detail ? errData.detail : `${fallback}: ${response.status}`)
+}
+
+export async function listMergedSets(): Promise<MergedSet[]> {
+  const response = await fetch(`${API_BASE_URL}/v1/merged-sets`)
+  if (!response.ok) throw await detailError(response, 'Failed to load merged sets')
+  return response.json()
+}
+
+export async function getMergedSet(setId: number): Promise<MergedSet> {
+  const response = await fetch(`${API_BASE_URL}/v1/merged-sets/${setId}`)
+  if (!response.ok) throw await detailError(response, 'Failed to load merged set')
+  return response.json()
+}
+
+export async function createMergedSet(documentIds: number[], name?: string): Promise<CreateMergedSetResult> {
+  const response = await fetch(`${API_BASE_URL}/v1/merged-sets`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ document_ids: documentIds, ...(name ? { name } : {}) }),
+  })
+  if (!response.ok) throw await detailError(response, 'Failed to create merged set')
+  return response.json()
+}
+
+export async function renameMergedSet(setId: number, name: string): Promise<MergedSet> {
+  const response = await fetch(`${API_BASE_URL}/v1/merged-sets/${setId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name }),
+  })
+  if (!response.ok) throw await detailError(response, 'Failed to rename merged set')
+  return response.json()
+}
+
+export async function deleteMergedSet(setId: number): Promise<{ message: string; id: number }> {
+  const response = await fetch(`${API_BASE_URL}/v1/merged-sets/${setId}`, { method: 'DELETE' })
+  if (!response.ok) throw await detailError(response, 'Failed to delete merged set')
+  return response.json()
+}
+
+export async function getMergedSummary(setId: number): Promise<MergedSummary> {
+  const response = await fetch(`${API_BASE_URL}/v1/merged-sets/${setId}/summary`)
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error('Summary not found')
+    }
+    throw await detailError(response, 'Failed to fetch merged summary')
+  }
+  return response.json()
+}
+
+export function generateMergedSummary(setId: number, regenerate = false): Promise<MergedSummary> {
+  return shareInFlight(`merged-summary:${setId}:${regenerate}`, async () => {
+    const response = await fetch(`${API_BASE_URL}/v1/merged-sets/${setId}/summary?regenerate=${regenerate}`, {
+      method: 'POST',
+    })
+    if (!response.ok) throw await detailError(response, 'Failed to generate merged summary')
+    return response.json()
+  })
+}
+
+export async function getMergedFlashcards(setId: number): Promise<MergedFlashcardsResponse> {
+  const response = await fetch(`${API_BASE_URL}/v1/merged-sets/${setId}/flashcards`)
+  if (!response.ok) throw await detailError(response, 'Failed to fetch merged flashcards')
+  return response.json()
+}
+
+export function generateMergedFlashcards(setId: number, count = 10): Promise<MergedFlashcardsResponse> {
+  return shareInFlight(`merged-flashcards:${setId}:${count}`, async () => {
+    const response = await fetch(`${API_BASE_URL}/v1/merged-sets/${setId}/flashcards?count=${count}`, {
+      method: 'POST',
+    })
+    if (!response.ok) throw await detailError(response, 'Failed to generate merged flashcards')
+    return response.json()
+  })
 }

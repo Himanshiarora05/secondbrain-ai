@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FileText, BookOpen, Layers, Presentation, FileEdit, Video, Globe, Trash2, Pencil } from 'lucide-react'
+import { FileText, BookOpen, Layers, Presentation, FileEdit, Video, Globe, Trash2, Pencil, Check } from 'lucide-react'
 import type { DocumentItem } from '../../types'
 import { DocumentNameEditor } from './DocumentNameEditor'
 
@@ -10,6 +10,11 @@ interface DocumentCardProps {
   onDelete?: (doc: DocumentItem) => void
   onRename?: (doc: DocumentItem, name: string) => Promise<void>
   onClick?: () => void
+  // Selection mode (picking documents for a merged set): the whole card is a
+  // checkbox and its action buttons are hidden.
+  selectable?: boolean
+  selected?: boolean
+  onToggleSelect?: () => void
 }
 
 export function DocumentCard({
@@ -19,8 +24,25 @@ export function DocumentCard({
   onDelete,
   onRename,
   onClick,
+  selectable = false,
+  selected = false,
+  onToggleSelect,
 }: DocumentCardProps) {
   const [isRenaming, setIsRenaming] = useState(false)
+  const selectProps = selectable
+    ? {
+        role: 'checkbox',
+        'aria-checked': selected,
+        'aria-label': `Select ${document.filename}`,
+        tabIndex: 0,
+        onKeyDown: (e: React.KeyboardEvent) => {
+          if (e.key === ' ' || e.key === 'Enter') {
+            e.preventDefault()
+            onToggleSelect?.()
+          }
+        },
+      }
+    : {}
   const sourceType = (document.source_type || 'pdf').toLowerCase()
 
   const getSourceIconAndBadge = () => {
@@ -78,16 +100,31 @@ export function DocumentCard({
 
   return (
     <div
-      onClick={isRenaming ? undefined : onClick}
+      onClick={selectable ? onToggleSelect : isRenaming ? undefined : onClick}
+      {...selectProps}
       style={{
         background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.015) 100%)',
       }}
-      className="group @container p-6 rounded-2xl backdrop-blur-xl border border-[rgba(255,255,255,0.08)] hover:border-[rgba(59,130,246,0.35)] hover:shadow-[0_0_28px_rgba(59,130,246,0.18)] transition-all duration-300 cursor-pointer relative overflow-hidden"
+      className={`group @container p-6 rounded-2xl backdrop-blur-xl border hover:shadow-[0_0_28px_rgba(59,130,246,0.18)] transition-all duration-300 cursor-pointer relative overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B82F6] ${
+        selected
+          ? 'border-[rgba(59,130,246,0.7)] bg-[rgba(59,130,246,0.08)] shadow-[0_0_24px_rgba(59,130,246,0.2)]'
+          : 'border-[rgba(255,255,255,0.08)] hover:border-[rgba(59,130,246,0.35)]'
+      }`}
     >
       {/* Layout follows the card's own width, not the window's: in the two-column
           library a card is ~480px wide, and buttons beside the title left it ~80px. */}
       <div className="flex flex-col @2xl:flex-row @2xl:items-center justify-between gap-4">
       <div className="flex items-center gap-4 min-w-0">
+        {selectable && (
+          <span
+            aria-hidden="true"
+            className={`w-5 h-5 rounded-md border flex items-center justify-center flex-shrink-0 transition-colors ${
+              selected ? 'bg-[#3B82F6] border-[#3B82F6] text-white' : 'border-[rgba(255,255,255,0.3)] bg-[rgba(255,255,255,0.03)]'
+            }`}
+          >
+            {selected && <Check size={13} strokeWidth={3} />}
+          </span>
+        )}
         <div className={`w-12 h-12 rounded-2xl ${bgColor} border border-[rgba(255,255,255,0.05)] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-all duration-200`}>
           {icon}
         </div>
@@ -127,6 +164,7 @@ export function DocumentCard({
         </div>
       </div>
 
+      {!selectable && (
       <div className="flex flex-wrap items-center justify-end gap-2 self-end @2xl:self-center" onClick={(e) => e.stopPropagation()}>
         {onOpenSummary && (
           <button
@@ -178,6 +216,7 @@ export function DocumentCard({
           </div>
         )}
       </div>
+      )}
       </div>
     </div>
   )

@@ -85,3 +85,51 @@ export interface FlashcardsResponse {
   document_id: number
   flashcards: Flashcard[]
 }
+
+// ─── Merged sets (several documents studied together) ───
+
+export interface MergedSetDocument {
+  id: number
+  filename: string
+  source_type: SourceType
+  source_url?: string | null
+}
+
+export interface MergedSet {
+  id: number
+  name: string
+  created_at: string | null
+  updated_at: string | null
+  // Current members in set order; a deleted document drops out of this list.
+  documents: MergedSetDocument[]
+  has_summary: boolean
+  flashcard_count: number
+  // Generated before one of its documents was deleted.
+  summary_stale: boolean
+  flashcards_stale: boolean
+}
+
+export interface CreateMergedSetResult {
+  // False when a set with exactly these documents already existed and was reopened.
+  created: boolean
+  merged_set: MergedSet
+}
+
+export interface MergedSummary {
+  set_id: number
+  // Starts with a code-built "Sources" list; citations look like "(1: p. 12)" or "[3: 02:05](url)".
+  summary: string
+  created_at: string | null
+  stale: boolean
+}
+
+export interface MergedFlashcard extends Flashcard {
+  // The source the card came from; null once that document is deleted.
+  document_id: number | null
+}
+
+export interface MergedFlashcardsResponse {
+  set_id: number
+  flashcards: MergedFlashcard[]
+  stale: boolean
+}
