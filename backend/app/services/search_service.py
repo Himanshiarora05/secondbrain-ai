@@ -17,7 +17,7 @@ from openai import OpenAI
 from app.database.chroma import get_collection
 from app.services.embedding_service import get_embedding
 from app.services.youtube.youtube_service import YouTubeService
-from app.services.ai.summary_service import ai_failure, format_pages, format_timestamp
+from app.services.ai.summary_service import MODEL_NAME, ai_failure, format_pages, format_timestamp
 
 load_dotenv()
 
@@ -82,7 +82,7 @@ def generate_answer(query: str, context: str) -> str:
     """
     try:
         response = client.chat.completions.create(
-            model="openai/gpt-3.5-turbo",
+            model=MODEL_NAME,
             messages=[
                 {
                     "role": "system",
