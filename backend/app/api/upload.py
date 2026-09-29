@@ -1,6 +1,7 @@
 import json
 import logging
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -51,6 +52,27 @@ OLE_DOCX_MESSAGE = (
     "This file can't be read: it's either an old .doc document renamed to .docx, or it's "
     "password-protected. Remove any password and save it as .docx, then upload it again."
 )
+
+
+SCANNED_PDF_MESSAGE = (
+    "This PDF is scanned images, so there's no text to read. Upload a version with selectable "
+    "text, or run it through OCR (text recognition) first."
+)
+
+
+@contextmanager
+def _removed_on_failure(file_path: Path):
+    """Delete a saved upload if anything after saving it fails (unreadable text,
+    no chunks, embeddings, storage, a dropped connection), so a failed upload
+    doesn't leave an orphaned file in uploads/ that no document points to."""
+    try:
+        yield
+    except BaseException:
+        try:
+            file_path.unlink(missing_ok=True)
+        except OSError as e:
+            logger.warning(f"Could not remove failed upload {file_path}: {e}")
+        raise
 
 
 class YouTubeUploadRequest(BaseModel):
@@ -183,29 +205,34 @@ async def upload_pdf(file: UploadFile = File(...), db: Session = Depends(get_db)
     with open(file_path, "wb") as f:
         f.write(content)
 
-    try:
-        pages = PDFService.extract_pages(str(file_path))
-    except Exception as e:
-        logger.error(f"Failed to extract PDF text from '{file.filename}': {e}", exc_info=True)
-        raise HTTPException(status_code=400, detail="Could not extract text from this PDF file, please try another file")
+    with _removed_on_failure(file_path):
+        try:
+            # From the bytes, not the saved file: see PdfSource in pdf_service.py.
+            pages = PDFService.extract_pages(content)
+        except Exception as e:
+            logger.error(f"Failed to extract PDF text from '{file.filename}': {e}", exc_info=True)
+            raise HTTPException(status_code=400, detail="Could not extract text from this PDF file, please try another file")
 
-    text = "".join(pages)
-    if not text.strip():
-        raise HTTPException(status_code=400, detail="No readable text found in this PDF file")
+        text = "".join(pages)
+        if not text.strip():
+            if PDFService.has_images(content):
+                logger.info(f"Rejected scanned PDF '{file.filename}' ({len(pages)} pages, no text layer)")
+                raise HTTPException(status_code=400, detail=SCANNED_PDF_MESSAGE)
+            raise HTTPException(status_code=400, detail="No readable text found in this PDF file")
 
-    chunks = RAGService.chunk_pages(pages)
-    if not chunks:
-        raise HTTPException(status_code=400, detail="No usable text chunks after processing")
+        chunks = RAGService.chunk_pages(pages)
+        if not chunks:
+            raise HTTPException(status_code=400, detail="No usable text chunks after processing")
 
-    return _store_document_and_chunks(
-        db=db,
-        file_id=file_id,
-        filename=file.filename,
-        content=text,
-        chunks=[c["text"] for c in chunks],
-        source_type="pdf",
-        chunk_pages=[(c["page_start"], c["page_end"]) for c in chunks],
-    )
+        return _store_document_and_chunks(
+            db=db,
+            file_id=file_id,
+            filename=file.filename,
+            content=text,
+            chunks=[c["text"] for c in chunks],
+            source_type="pdf",
+            chunk_pages=[(c["page_start"], c["page_end"]) for c in chunks],
+        )
 
 
 @router.post("/pptx")
@@ -228,36 +255,37 @@ async def upload_pptx(file: UploadFile = File(...), db: Session = Depends(get_db
     with open(file_path, "wb") as f:
         f.write(content)
 
-    try:
-        text = PPTService.extract_text(str(file_path))
-    except ValueError as e:
-        logger.error(f"Corrupt or unreadable PPTX '{filename}': {e}", exc_info=True)
-        raise HTTPException(
-            status_code=400,
-            detail="Could not process this PowerPoint file. Please ensure it is a valid .pptx presentation",
+    with _removed_on_failure(file_path):
+        try:
+            text = PPTService.extract_text(str(file_path))
+        except ValueError as e:
+            logger.error(f"Corrupt or unreadable PPTX '{filename}': {e}", exc_info=True)
+            raise HTTPException(
+                status_code=400,
+                detail="Could not process this PowerPoint file. Please ensure it is a valid .pptx presentation",
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error extracting PPTX '{filename}': {e}", exc_info=True)
+            raise HTTPException(
+                status_code=502,
+                detail="Could not process this PowerPoint presentation right now, please try again",
+            )
+
+        if not text.strip():
+            raise HTTPException(status_code=400, detail="No readable text found in this PowerPoint presentation")
+
+        chunks = RAGService.chunk_text(text)
+        if not chunks:
+            raise HTTPException(status_code=400, detail="No usable text chunks after processing")
+
+        return _store_document_and_chunks(
+            db=db,
+            file_id=file_id,
+            filename=filename,
+            content=text,
+            chunks=chunks,
+            source_type="pptx",
         )
-    except Exception as e:
-        logger.error(f"Unexpected error extracting PPTX '{filename}': {e}", exc_info=True)
-        raise HTTPException(
-            status_code=502,
-            detail="Could not process this PowerPoint presentation right now, please try again",
-        )
-
-    if not text.strip():
-        raise HTTPException(status_code=400, detail="No readable text found in this PowerPoint presentation")
-
-    chunks = RAGService.chunk_text(text)
-    if not chunks:
-        raise HTTPException(status_code=400, detail="No usable text chunks after processing")
-
-    return _store_document_and_chunks(
-        db=db,
-        file_id=file_id,
-        filename=filename,
-        content=text,
-        chunks=chunks,
-        source_type="pptx",
-    )
 
 
 @router.post("/docx")
@@ -280,36 +308,37 @@ async def upload_docx(file: UploadFile = File(...), db: Session = Depends(get_db
     with open(file_path, "wb") as f:
         f.write(content)
 
-    try:
-        text = DOCXService.extract_text(str(file_path))
-    except ValueError as e:
-        logger.error(f"Corrupt or unreadable DOCX '{filename}': {e}", exc_info=True)
-        raise HTTPException(
-            status_code=400,
-            detail="Could not process this Word document. Please ensure it is a valid .docx file",
+    with _removed_on_failure(file_path):
+        try:
+            text = DOCXService.extract_text(str(file_path))
+        except ValueError as e:
+            logger.error(f"Corrupt or unreadable DOCX '{filename}': {e}", exc_info=True)
+            raise HTTPException(
+                status_code=400,
+                detail="Could not process this Word document. Please ensure it is a valid .docx file",
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error extracting DOCX '{filename}': {e}", exc_info=True)
+            raise HTTPException(
+                status_code=502,
+                detail="Could not process this Word document right now, please try again",
+            )
+
+        if not text.strip():
+            raise HTTPException(status_code=400, detail="No readable text found in this Word document")
+
+        chunks = RAGService.chunk_text(text)
+        if not chunks:
+            raise HTTPException(status_code=400, detail="No usable text chunks after processing")
+
+        return _store_document_and_chunks(
+            db=db,
+            file_id=file_id,
+            filename=filename,
+            content=text,
+            chunks=chunks,
+            source_type="docx",
         )
-    except Exception as e:
-        logger.error(f"Unexpected error extracting DOCX '{filename}': {e}", exc_info=True)
-        raise HTTPException(
-            status_code=502,
-            detail="Could not process this Word document right now, please try again",
-        )
-
-    if not text.strip():
-        raise HTTPException(status_code=400, detail="No readable text found in this Word document")
-
-    chunks = RAGService.chunk_text(text)
-    if not chunks:
-        raise HTTPException(status_code=400, detail="No usable text chunks after processing")
-
-    return _store_document_and_chunks(
-        db=db,
-        file_id=file_id,
-        filename=filename,
-        content=text,
-        chunks=chunks,
-        source_type="docx",
-    )
 
 
 @router.post("/youtube")
