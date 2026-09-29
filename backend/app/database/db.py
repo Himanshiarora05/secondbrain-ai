@@ -47,7 +47,7 @@ def init_db():
     otherwise SQLAlchemy won't know about their tables yet.
     """
     from sqlalchemy import text
-    from app.models import document, chunk, summary, flashcard  # noqa: F401  (registers models on Base)
+    from app.models import document, chunk, summary, flashcard, merged_set  # noqa: F401  (registers models on Base)
     Base.metadata.create_all(bind=engine)
 
     # Database-level migrations for multi-source ingestion with explicit defaults
