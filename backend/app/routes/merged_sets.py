@@ -20,7 +20,7 @@ from app.models.document import Document
 from app.models.merged_set import MergedFlashcard, MergedSet, MergedSetDocument, MergedSummary
 from app.routes.documents import MAX_NAME_LENGTH
 from app.services.ai.flashcard_service import build_chunk_citations
-from app.services.ai.merged_service import MergedSource, generate_merged_summary
+from app.services.ai.merged_service import MergedSource, generate_merged_flashcards, generate_merged_summary
 from app.services.ai.summary_service import AIGenerationError
 
 router = APIRouter(prefix="/api/v1/merged-sets", tags=["Merged sets"])
@@ -332,3 +332,79 @@ def get_merged_summary(set_id: int, db: Session = Depends(get_db)):
     if not summary:
         raise HTTPException(status_code=404, detail="No merged summary yet")
     return _summary_dict(merged, summary, _member_ids(db, set_id))
+
+
+# ─── Merged flashcards ───
+
+
+def _card_dict(card: MergedFlashcard) -> dict:
+    return {
+        "id": card.id,
+        "question": card.question,
+        "answer": card.answer,
+        "source_label": card.source_label,
+        "source_url": card.source_url,
+        "document_id": card.document_id,
+    }
+
+
+def _deck_dict(set_id: int, cards: List[MergedFlashcard]) -> dict:
+    return {
+        "set_id": set_id,
+        "flashcards": [_card_dict(c) for c in cards],
+        # A card whose document was deleted keeps its text but loses its link.
+        "stale": any(c.document_id is None for c in cards),
+    }
+
+
+def _saved_cards(db: Session, set_id: int) -> List[MergedFlashcard]:
+    return db.query(MergedFlashcard).filter(MergedFlashcard.set_id == set_id).order_by(MergedFlashcard.id.asc()).all()
+
+
+@router.post("/{set_id}/flashcards")
+def create_merged_flashcards(
+    set_id: int,
+    count: int = Query(10, ge=1, le=50, description="Number of flashcards in the deck"),
+    db: Session = Depends(get_db),
+):
+    """Generate the set's deck, replacing its previous merged deck only on success."""
+    merged = _get_set(db, set_id)
+    sources = load_sources(db, merged)
+    if len(sources) < MIN_DOCUMENTS:
+        raise HTTPException(
+            status_code=400,
+            detail="This set has fewer than 2 documents left, so there's nothing to merge. "
+                   "Create a new set from the Library instead.",
+        )
+    if not any(s.chunks for s in sources):
+        raise HTTPException(status_code=400, detail="These documents have no text to make flashcards from.")
+
+    try:
+        cards = generate_merged_flashcards(sources, count=count)
+    except AIGenerationError as e:
+        raise HTTPException(status_code=502, detail=f"{e} Your existing flashcards were not changed.")
+    if not cards:
+        raise HTTPException(
+            status_code=502,
+            detail="The AI didn't return any flashcards. Please try again. Your existing flashcards were not changed.",
+        )
+
+    # Lock only around the replace, as for per-document decks, so two
+    # concurrent generations can't interleave their deletes and inserts.
+    _lock_set(db, set_id)
+    db.query(MergedFlashcard).filter(MergedFlashcard.set_id == set_id).delete()
+    db.add_all([
+        MergedFlashcard(
+            set_id=set_id, document_id=c["document_id"], question=c["question"], answer=c["answer"],
+            source_label=c["source_label"], source_url=c["source_url"],
+        )
+        for c in cards
+    ])
+    db.commit()
+    return _deck_dict(set_id, _saved_cards(db, set_id))
+
+
+@router.get("/{set_id}/flashcards")
+def get_merged_flashcards(set_id: int, db: Session = Depends(get_db)):
+    _get_set(db, set_id)
+    return _deck_dict(set_id, _saved_cards(db, set_id))
