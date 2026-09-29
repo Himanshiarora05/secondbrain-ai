@@ -157,7 +157,7 @@ export function FlashcardsHubPage() {
                       {set.name}
                     </h3>
                     <div className="flex items-center gap-2 text-xs text-[#A1A1AA] font-mono flex-wrap">
-                      <span>{set.documents.length} sources</span>
+                      <span>{set.documents.length} {set.documents.length === 1 ? 'source' : 'sources'}</span>
                       <span className="flex items-center gap-1">
                         {[...new Set(set.documents.map((d) => d.source_type))].map((t) => (
                           <span key={t}>{sourceBadge(t, 12).icon}</span>

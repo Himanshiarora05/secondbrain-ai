@@ -92,6 +92,27 @@ def test_plain_citations_are_grouped_by_source():
     assert ss.replace_labels("- Point [S0][S1]", [("p. 1", None), ("p. 2", None)]) == "- Point (p. 1; p. 2)", "per-document output unchanged"
 
 
+def test_labels_in_the_models_own_parentheses_are_not_doubled():
+    pages = [("1: p. 1", None), ("1: pp. 2–3", None), ("3: 02:05", "https://v/t=125")]
+    cases = {
+        "- A ([S0]).": "- A (1: p. 1).",
+        "- B ( [S0][S1] )": "- B (1: p. 1, pp. 2–3)",
+        "- C ([S2])": "- C ([3: 02:05](https://v/t=125))",
+        "- D ([S2][S0])": "- D [3: 02:05](https://v/t=125) (1: p. 1)",
+        "- E ([S9])": "- E",
+        "- F (see [S0])": "- F (see (1: p. 1))",
+    }
+    for text, expected in cases.items():
+        got = ss.replace_labels(text, pages, join_plain=mg.join_by_source)
+        assert got == expected, (text, got)
+    assert ss.replace_labels("- Point ([S0])", [("p. 4", None)]) == "- Point (p. 4)", "per-document too"
+
+
+def test_inline_latex_delimiters_are_removed():
+    assert mg.plain_inline_math(r"A graph \(G = (V, E)\) has order \(|V|\).") == "A graph G = (V, E) has order |V|."
+    assert mg.plain_inline_math(r"Keep \[S0\] and \begin{x} alone") == r"Keep \[S0\] and \begin{x} alone"
+
+
 def test_sources_list_is_built_by_code():
     text = mg.sources_list(mixed_sources())
     assert text.splitlines() == [
@@ -119,6 +140,8 @@ def test_small_set_is_one_call_with_numbered_citations():
     assert len(llm.calls) == 1, len(llm.calls)
     system, user, max_tokens = llm.calls[0]
     assert "organised by topic" in system and "[S3]" in system, "merged prompt with the citation rule"
+    assert "'Source 1'" in system and "never write the [S0]" in system, "sources are named by number, not label"
+    assert "not LaTeX" in system
     assert max_tokens == mg.FINAL_MAX_TOKENS + ss.REASONING_ALLOWANCE
     for heading in ("## Source 1: Graph_PPT.pdf (PDF)", "## Source 3: YouTube: abcdefghijk (YouTube video)",
                     "## Source 5: notes.docx (Word document)"):

@@ -16,7 +16,8 @@ from openai import OpenAI
 
 from app.services.rag.rag_service import RAGService
 from app.services.ai.summary_service import (
-    MODEL_NAME, REASONING_ALLOWANCE, AIGenerationError, ai_failure, format_pages, format_timestamp, check_reply,
+    MODEL_NAME, REASONING_ALLOWANCE, AIGenerationError, ai_failure, check_reply, format_pages, format_timestamp,
+    is_daily_limit,
 )
 from app.services.youtube.youtube_service import YouTubeService
 
@@ -130,7 +131,7 @@ STRICT JSON FLASHCARDS:"""
                 return cards
             last_exception = ValueError("LLM returned empty or unparseable flashcards")
         except openai.APIStatusError as e:
-            if e.status_code in (401, 402, 403):  # key or credit problem: a retry can't help
+            if e.status_code in (401, 402, 403) or is_daily_limit(e):  # key, credit or daily-limit problem: a retry can't help
                 raise ai_failure(e, "generating flashcards") from e
             last_exception = e
         except Exception as e:
