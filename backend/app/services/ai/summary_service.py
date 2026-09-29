@@ -35,6 +35,9 @@ _AI_STATUS_MESSAGES = {
     401: "The AI service rejected the API key. Check OPENROUTER_API_KEY in backend/.env.",
     402: "The AI service is out of credits. Add credits at openrouter.ai to generate summaries, flashcards and answers.",
     403: "The AI service refused this request. The API key may not have access to this model.",
+    # OpenRouter's answer for an unknown model id, and for a free model when the
+    # account's privacy settings exclude every provider that serves it.
+    404: "The AI model isn't available. Check OPENROUTER_MODEL in backend/.env and your OpenRouter privacy settings.",
     429: "The AI service is busy right now (rate limit reached). Please wait a minute and try again.",
 }
 
@@ -65,7 +68,23 @@ client = OpenAI(
     timeout=30,
 )
 
-MODEL_NAME = "openai/gpt-3.5-turbo"
+DEFAULT_MODEL = "openai/gpt-3.5-turbo"
+
+
+def configured_model() -> str:
+    """The OpenRouter model for summaries, flashcards and search answers.
+
+    OPENROUTER_MODEL in backend/.env overrides the default (e.g. a ":free" model
+    for testing); remove it to go back. Read once at import, so a change needs
+    a backend restart (--reload doesn't watch .env).
+    """
+    return os.getenv("OPENROUTER_MODEL", "").strip() or DEFAULT_MODEL
+
+
+MODEL_NAME = configured_model()
+if MODEL_NAME != DEFAULT_MODEL:
+    logger.warning(f"Using OpenRouter model {MODEL_NAME} (OPENROUTER_MODEL), not the default {DEFAULT_MODEL}")
+
 MAP_REDUCE_THRESHOLD = 6000
 
 

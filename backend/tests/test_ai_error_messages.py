@@ -56,6 +56,7 @@ def test_each_failure_kind_has_a_plain_message():
         (status_error(402), "out of credits"),
         (status_error(401), "rejected the API key"),
         (status_error(403), "refused this request"),
+        (status_error(404), "model isn't available"),
         (status_error(429), "rate limit"),
         (status_error(500), "having problems"),
         (status_error(503), "having problems"),

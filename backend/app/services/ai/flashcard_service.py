@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from app.services.rag.rag_service import RAGService
-from app.services.ai.summary_service import AIGenerationError, ai_failure, format_pages, format_timestamp
+from app.services.ai.summary_service import MODEL_NAME, AIGenerationError, ai_failure, format_pages, format_timestamp
 from app.services.youtube.youtube_service import YouTubeService
 
 load_dotenv()
@@ -26,7 +26,6 @@ client = OpenAI(
     timeout=30,
 )
 
-MODEL_NAME = "openai/gpt-3.5-turbo"
 MAP_REDUCE_THRESHOLD = 6000
 
 
