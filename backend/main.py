@@ -10,6 +10,7 @@ from app.routes.search import router as search_router
 from app.routes.documents import router as documents_router
 from app.routes.study import router as study_router
 from app.routes.merged_sets import router as merged_sets_router
+from app.routes.auth import router as auth_router
 
 app = FastAPI(
     title="SecondBrain AI",
@@ -22,6 +23,7 @@ app.include_router(search_router)
 app.include_router(documents_router)
 app.include_router(study_router)
 app.include_router(merged_sets_router)
+app.include_router(auth_router)
 
 
 @app.on_event("startup")
