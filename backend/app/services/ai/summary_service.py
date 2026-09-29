@@ -87,6 +87,27 @@ if MODEL_NAME != DEFAULT_MODEL:
 
 MAP_REDUCE_THRESHOLD = 6000
 
+# Reasoning models (e.g. nvidia/nemotron-*) spend part of max_tokens thinking
+# before they write the answer; without this allowance a summary stops
+# mid-sentence. Models that don't reason stop well before the cap anyway.
+REASONING_ALLOWANCE = 3000
+
+
+def warn_if_cut_off(response, what: str) -> None:
+    if response.choices[0].finish_reason == "length":
+        logger.warning(f"AI reply hit the length limit while {what} (model {MODEL_NAME}); the text is cut off")
+
+
+def reply_text(response, what: str) -> str:
+    """The reply's text. Logs when it was cut off; raises AIGenerationError when
+    there is none (a reasoning model can use up the whole budget thinking)."""
+    warn_if_cut_off(response, what)
+    text = (response.choices[0].message.content or "").strip()
+    if not text:
+        logger.warning(f"AI reply had no text while {what} (model {MODEL_NAME})")
+        raise AIGenerationError("The AI returned an empty reply. Please try again.")
+    return text
+
 
 def _summarize_chunk(chunk_text: str) -> str:
     """Briefly summarize an individual chunk during the map step."""
@@ -105,9 +126,11 @@ Summary Notes:"""
                 {"role": "user", "content": prompt},
             ],
             temperature=0.3,
-            max_tokens=400,
+            max_tokens=400 + REASONING_ALLOWANCE,
         )
-        return response.choices[0].message.content.strip()
+        return reply_text(response, "summarizing a section")
+    except AIGenerationError:
+        raise
     except Exception as e:
         raise ai_failure(e, "summarizing a section") from e
 
@@ -168,9 +191,9 @@ Exam Revision Summary:"""
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.4,
-            max_tokens=900,
+            max_tokens=900 + REASONING_ALLOWANCE,
         )
-        return response.choices[0].message.content.strip()
+        return reply_text(response, "generating a summary")
     except AIGenerationError:
         raise
     except Exception as e:
@@ -195,8 +218,10 @@ def append_source_link(summary: str, title: str, url: str) -> str:
 # points at a real place in the source.
 
 # One match = a run of labels like "[S3]", "[S3, S7]" or "[S3][S7]", so the
-# citations for a run are joined (and de-duplicated) together.
-_LABEL = r"\[\s*S\d+(?:\s*,\s*S\d+)*\s*\]"
+# citations for a run are joined (and de-duplicated) together. Some models
+# Markdown-escape the brackets ("\[S3\]"); the backslashes are matched too so
+# they're replaced along with the label.
+_LABEL = r"\\?\[\s*S\d+(?:\s*,\s*S\d+)*\s*\\?\]"
 _CITATION_RE = re.compile(rf"{_LABEL}(?:[ \t]*{_LABEL})*")
 
 CITATION_RULE = (
@@ -272,9 +297,11 @@ def _summarize_labelled_batch(labelled_text: str) -> str:
                 {"role": "user", "content": f"Extract key concepts, definitions, formulas, and main points as bullet points.\n\nText:\n{labelled_text}\n\nSummary Notes:"},
             ],
             temperature=0.3,
-            max_tokens=400,
+            max_tokens=400 + REASONING_ALLOWANCE,
         )
-        return response.choices[0].message.content.strip()
+        return reply_text(response, "summarizing a section")
+    except AIGenerationError:
+        raise
     except Exception as e:
         raise ai_failure(e, "summarizing a section") from e
 
