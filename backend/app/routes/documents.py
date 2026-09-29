@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.database.db import SessionLocal, get_db
@@ -13,6 +14,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["Documents"])
 
 UPLOAD_DIR = Path("uploads")
+
+MAX_NAME_LENGTH = 255
 
 
 @router.get("/documents")
@@ -50,6 +53,48 @@ def list_documents():
 
     finally:
         db.close()
+
+
+class RenameRequest(BaseModel):
+    filename: str
+
+
+@router.patch("/documents/{document_id}")
+def rename_document(document_id: int, body: RenameRequest, db: Session = Depends(get_db)):
+    """Change a document's display name. Search results show the name stored in
+    Chroma metadata, so the document's vectors are updated too: Chroma first,
+    then the database, and Chroma is put back if the database write fails."""
+    name = " ".join(body.filename.split())
+    if not name:
+        raise HTTPException(status_code=400, detail="The name can't be empty.")
+    if len(name) > MAX_NAME_LENGTH:
+        raise HTTPException(status_code=400, detail=f"The name can be at most {MAX_NAME_LENGTH} characters.")
+
+    doc = db.query(Document).filter(Document.id == document_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if name == doc.filename:
+        return {"id": doc.id, "filename": doc.filename}
+
+    collection = get_collection()
+    stored = collection.get(where={"document_id": document_id}, include=["metadatas"])
+    ids, old_metadatas = stored["ids"], stored["metadatas"]
+    try:
+        if ids:
+            collection.update(ids=ids, metadatas=[{**m, "filename": name} for m in old_metadatas])
+        doc.filename = name
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        if ids:
+            try:
+                collection.update(ids=ids, metadatas=old_metadatas)
+            except Exception:
+                logger.error(f"Could not restore search names for document {document_id}", exc_info=True)
+        logger.error(f"Failed to rename document {document_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Couldn't rename the document. Please try again.")
+
+    return {"id": doc.id, "filename": doc.filename}
 
 
 @router.delete("/documents/{document_id}")

@@ -194,6 +194,23 @@ export async function deleteDocument(documentId: number): Promise<{ message: str
   return response.json()
 }
 
+export async function renameDocument(documentId: number, filename: string): Promise<{ id: number; filename: string }> {
+  const response = await fetch(`${API_BASE_URL}/v1/documents/${documentId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ filename }),
+  })
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}))
+    throw new Error(typeof errData.detail === 'string' ? errData.detail : `Failed to rename document: ${response.status}`)
+  }
+
+  return response.json()
+}
+
 export async function healthCheck(): Promise<HealthStatus> {
   const response = await fetch(`${API_BASE_URL}/v1/health`)
 
