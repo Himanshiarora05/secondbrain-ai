@@ -1,5 +1,5 @@
 import { useEffect, useState, useTransition } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, useLocation, Link } from 'react-router-dom'
 import {
   ArrowLeft,
   ChevronLeft,
@@ -11,22 +11,32 @@ import {
   AlertCircle,
   HelpCircle,
   CheckCircle2,
-  Presentation,
-  FileText,
-  FileEdit,
-  Video,
-  Globe,
   ExternalLink,
 } from 'lucide-react'
-import { getDocuments, getFlashcards, generateFlashcards } from '../api/client'
+import {
+  getDocuments,
+  getFlashcards,
+  generateFlashcards,
+  getMergedSet,
+  getMergedFlashcards,
+  generateMergedFlashcards,
+} from '../api/client'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
-import type { DocumentItem, Flashcard } from '../types'
+import { sourceBadge, MERGED_BADGE_STYLE } from '../components/library/sourceBadge'
+import { MergedSetMembers, MergedSetNotices } from '../components/library/MergedSetHeader'
+import type { DocumentItem, Flashcard, MergedSet } from '../types'
 
-export function FlashcardPage() {
-  const { documentId } = useParams<{ documentId: string }>()
-  const docIdNum = documentId ? parseInt(documentId, 10) : NaN
+// With `merged`, the page shows a merged set's deck (route /library/merged/:setId/flashcards).
+export function FlashcardPage({ merged = false }: { merged?: boolean }) {
+  const params = useParams<{ documentId?: string; setId?: string }>()
+  const rawId = merged ? params.setId : params.documentId
+  const docIdNum = rawId ? parseInt(rawId, 10) : NaN
+  const location = useLocation()
+  const reopened = merged && Boolean((location.state as { reopened?: boolean } | null)?.reopened)
 
   const [document, setDocument] = useState<DocumentItem | null>(null)
+  const [mergedSet, setMergedSet] = useState<MergedSet | null>(null)
+  const [stale, setStale] = useState(false)
   const [cards, setCards] = useState<Flashcard[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
   const [isFlipped, setIsFlipped] = useState(false)
@@ -35,10 +45,10 @@ export function FlashcardPage() {
   const [error, setError] = useState<string | null>(null)
   const [, startTransition] = useTransition()
 
-  // Load document and flashcards
+  // Load document (or merged set) and flashcards
   useEffect(() => {
     if (isNaN(docIdNum)) {
-      setError('Invalid document ID')
+      setError(merged ? 'Invalid merged set ID' : 'Invalid document ID')
       setIsLoading(false)
       return
     }
@@ -51,6 +61,22 @@ export function FlashcardPage() {
       setIsFlipped(false)
 
       try {
+        if (merged) {
+          const set = await getMergedSet(docIdNum)
+          if (isMounted) setMergedSet(set)
+          const res = await getMergedFlashcards(docIdNum)
+          // Auto-generate 10 flashcards if none exist yet
+          const deck = res.flashcards.length > 0 ? res : await generateMergedFlashcards(docIdNum, 10)
+          if (isMounted) {
+            startTransition(() => {
+              setCards(deck.flashcards)
+              setStale(deck.stale)
+              setCurrentIndex(0)
+            })
+          }
+          return
+        }
+
         const docs = await getDocuments()
         const found = docs.find((d) => d.id === docIdNum)
         if (isMounted && found) {
@@ -91,7 +117,9 @@ export function FlashcardPage() {
     return () => {
       isMounted = false
     }
-  }, [docIdNum])
+  }, [docIdNum, merged])
+
+  const cannotRegenerate = merged && mergedSet !== null && mergedSet.documents.length < 2
 
   // Keyboard navigation: Space/Enter to flip, Left/Right arrows to navigate
   useEffect(() => {
@@ -135,12 +163,21 @@ export function FlashcardPage() {
   }
 
   const handleRegenerate = async () => {
-    if (isNaN(docIdNum)) return
+    if (isNaN(docIdNum) || cannotRegenerate) return
     setIsRegenerating(true)
     setError(null)
     setIsFlipped(false)
 
     try {
+      if (merged) {
+        const res = await generateMergedFlashcards(docIdNum, 10)
+        startTransition(() => {
+          setCards(res.flashcards)
+          setStale(res.stale)
+          setCurrentIndex(0)
+        })
+        return
+      }
       const res = await generateFlashcards(docIdNum, 10)
       startTransition(() => {
         setCards(res.flashcards)
@@ -153,44 +190,16 @@ export function FlashcardPage() {
     }
   }
 
-  const getSourceBadge = () => {
-    const type = document?.source_type || 'pdf'
-    switch (type) {
-      case 'pptx':
-        return {
-          icon: <Presentation size={14} className="text-[#FBBF24]" />,
-          label: 'PPTX',
-          style: 'text-[#FBBF24] bg-[rgba(251,191,36,0.2)] border border-[rgba(251,191,36,0.3)]',
-        }
-      case 'docx':
-        return {
-          icon: <FileEdit size={14} className="text-[#60A5FA]" />,
-          label: 'DOCX',
-          style: 'text-[#60A5FA] bg-[rgba(96,165,250,0.2)] border border-[rgba(96,165,250,0.3)]',
-        }
-      case 'youtube':
-        return {
-          icon: <Video size={14} className="text-[#F87171]" />,
-          label: 'YOUTUBE',
-          style: 'text-[#F87171] bg-[rgba(248,113,113,0.2)] border border-[rgba(248,113,113,0.3)]',
-        }
-      case 'website':
-        return {
-          icon: <Globe size={14} className="text-[#22D3EE]" />,
-          label: 'WEB',
-          style: 'text-[#22D3EE] bg-[rgba(34,211,238,0.2)] border border-[rgba(34,211,238,0.3)]',
-        }
-      case 'pdf':
-      default:
-        return {
-          icon: <FileText size={14} className="text-[#FB7185]" />,
-          label: 'PDF',
-          style: 'text-[#FB7185] bg-[rgba(251,113,133,0.2)] border border-[rgba(251,113,133,0.3)]',
-        }
-    }
-  }
-
-  const badge = getSourceBadge()
+  const badge = merged
+    ? {
+        icon: <Layers size={14} className="text-[#C4B5FD]" />,
+        label: `MERGED · ${mergedSet?.documents.length ?? '…'} SOURCES`,
+        style: MERGED_BADGE_STYLE,
+      }
+    : sourceBadge(document?.source_type || 'pdf')
+  const title = merged
+    ? mergedSet?.name ?? `Merged set #${docIdNum}`
+    : document ? document.filename : `Document #${docIdNum}`
   const currentCard = cards[currentIndex]
 
   return (
@@ -222,9 +231,10 @@ export function FlashcardPage() {
                 <span>{badge.label}</span>
               </span>
             </div>
-            <h1 className="text-xl font-bold text-white tracking-tight truncate max-w-md" title={document?.filename}>
-              {document ? document.filename : `Document #${docIdNum}`}
+            <h1 className="text-xl font-bold text-white tracking-tight truncate max-w-md" title={title}>
+              {title}
             </h1>
+            {mergedSet && <MergedSetMembers set={mergedSet} page="flashcards" />}
             {cards.length > 0 && !isLoading && (
               <p className="text-xs text-[#A1A1AA] mt-1 font-mono">
                 {cards.length} revision cards ready
@@ -247,9 +257,9 @@ export function FlashcardPage() {
 
             <button
               onClick={handleRegenerate}
-              disabled={isRegenerating}
-              className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold rounded-xl bg-gradient-to-r from-[#3B82F6] to-[#1D4ED8] hover:brightness-110 text-white transition-all duration-200 shadow-[0_0_20px_rgba(59,130,246,0.35)] disabled:opacity-50"
-              title="Regenerate cards with AI"
+              disabled={isRegenerating || cannotRegenerate}
+              className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold rounded-xl bg-gradient-to-r from-[#3B82F6] to-[#1D4ED8] hover:brightness-110 text-white transition-all duration-200 shadow-[0_0_20px_rgba(59,130,246,0.35)] disabled:opacity-50 disabled:cursor-not-allowed"
+              title={cannotRegenerate ? 'A merged set needs at least 2 documents' : 'Regenerate cards with AI'}
             >
               <RefreshCw size={14} className={isRegenerating ? 'animate-spin' : ''} />
               <span>{isRegenerating ? 'Regenerating...' : 'Regenerate'}</span>
@@ -258,6 +268,10 @@ export function FlashcardPage() {
         )}
       </div>
 
+      {mergedSet && !isLoading && (
+        <MergedSetNotices set={mergedSet} what="deck" stale={stale} reopened={reopened} />
+      )}
+
       {/* Main Deck Area */}
       <div className="p-4 sm:p-8 md:p-12 rounded-3xl bg-[rgba(255,255,255,0.03)] backdrop-blur-xl border border-[rgba(255,255,255,0.08)] shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex flex-col items-center justify-center min-h-[480px]">
         {isLoading ? (
@@ -265,7 +279,9 @@ export function FlashcardPage() {
             <LoadingSpinner size={44} className="mb-4 text-[#3B82F6]" />
             <h3 className="text-base font-semibold text-white mb-1.5">Generating Flashcard Deck</h3>
             <p className="text-xs text-[#A1A1AA] max-w-sm">
-              Extracting core definitions, testable concepts, and exam questions with AI...
+              {merged
+                ? 'Making cards from every document in the set, each citing its source. Large sets can take a minute...'
+                : 'Extracting core definitions, testable concepts, and exam questions with AI...'}
             </p>
           </div>
         ) : error ? (
@@ -275,19 +291,21 @@ export function FlashcardPage() {
             </div>
             <h3 className="text-base font-semibold text-white mb-2">Failed to Load Flashcards</h3>
             <p className="text-xs text-[#A1A1AA] max-w-md mb-6">{error}</p>
-            <button
-              onClick={handleRegenerate}
-              className="px-5 py-2.5 bg-gradient-to-r from-[#3B82F6] to-[#1D4ED8] text-white text-xs font-semibold rounded-xl transition-all duration-200 shadow-[0_0_20px_rgba(59,130,246,0.35)] hover:brightness-110"
-            >
-              Try Again
-            </button>
+            {!cannotRegenerate && (
+              <button
+                onClick={handleRegenerate}
+                className="px-5 py-2.5 bg-gradient-to-r from-[#3B82F6] to-[#1D4ED8] text-white text-xs font-semibold rounded-xl transition-all duration-200 shadow-[0_0_20px_rgba(59,130,246,0.35)] hover:brightness-110"
+              >
+                Try Again
+              </button>
+            )}
           </div>
         ) : cards.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <Layers size={36} className="text-[#5C5C6E] mb-3" />
             <h3 className="text-base font-semibold text-white mb-1">No Flashcards Yet</h3>
             <p className="text-xs text-[#A1A1AA] max-w-sm mb-6">
-              Generate study cards to test your knowledge on this document.
+              Generate study cards to test your knowledge on this {merged ? 'merged set' : 'document'}.
             </p>
             <button
               onClick={handleRegenerate}
