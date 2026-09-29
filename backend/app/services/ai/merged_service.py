@@ -15,6 +15,7 @@ import re
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from app.services.ai.flashcard_service import generate_cited_flashcards
 from app.services.ai.summary_service import (
     CITATION_RULE,
     Citation,
@@ -146,3 +147,72 @@ def generate_merged_summary(sources: List[MergedSource]) -> str:
 
     summary = _final_summary("\n\n".join(parts), MERGED_SYSTEM_PROMPT, max_tokens=FINAL_MAX_TOKENS)
     return f"{sources_list(sources)}\n\n---\n\n{replace_labels(summary, citations, join_plain=join_by_source)}"
+
+
+# ─── Merged flashcards ───
+
+
+def allocate_cards(count: int, sizes: List[int]) -> List[int]:
+    """Split `count` cards over sources by text size, at least 1 each.
+
+    Largest-remainder rounding, so the shares add up to `count` exactly.
+    Sources with no text get 0. With fewer cards than sources, the largest
+    sources get one each.
+    """
+    live = [i for i, size in enumerate(sizes) if size > 0]
+    shares = [0] * len(sizes)
+    if not live or count <= 0:
+        return shares
+    if count <= len(live):
+        for i in sorted(live, key=lambda i: -sizes[i])[:count]:
+            shares[i] = 1
+        return shares
+    for i in live:
+        shares[i] = 1
+    spare = count - len(live)
+    total = sum(sizes[i] for i in live)
+    exact = {i: spare * sizes[i] / total for i in live}
+    for i in live:
+        shares[i] += int(exact[i])
+    leftover = count - sum(shares)
+    for i in sorted(live, key=lambda i: (-(exact[i] - int(exact[i])), -sizes[i]))[:leftover]:
+        shares[i] += 1
+    return shares
+
+
+def merged_card_citation(source: MergedSource, label: Optional[str], url: Optional[str]):
+    """(label, url) for a merged card: always names the source, then the location if known.
+
+    "Graph_PPT.pdf · p. 12", "YouTube: abc · 02:05" (+ timestamp link), a web
+    page's title (+ its link), or just the name (Word, or no usable citation).
+    """
+    title = source.title.strip() or f"Source {source.number}"
+    if source.source_type == "website":
+        return title, source.source_url
+    if label:
+        return f"{title} · {label}", url
+    return title, None
+
+
+def generate_merged_flashcards(sources: List[MergedSource], count: int = 10) -> List[dict]:
+    """A deck covering every source, grouped by source in set order.
+
+    Each source's share (allocate_cards) comes from generate_cited_flashcards,
+    which spreads it across that source. Cards carry "document_id".
+    Raises AIGenerationError if any source's generation fails.
+    """
+    sizes = [sum(len((c or "").strip()) for c in s.chunks) for s in sources]
+    deck = []
+    for source, share in zip(sources, allocate_cards(count, sizes)):
+        if share == 0:
+            continue
+        for card in generate_cited_flashcards(source.chunks, source.citations, count=share):
+            label, url = merged_card_citation(source, card.get("source_label"), card.get("source_url"))
+            deck.append({
+                "question": card["question"],
+                "answer": card["answer"],
+                "source_label": label,
+                "source_url": url,
+                "document_id": source.document_id,
+            })
+    return deck
