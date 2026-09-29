@@ -10,9 +10,13 @@ A study notes summarizer. Add your study material, and SecondBrain turns it into
   - PDF summaries cite the page of every point (`(p. 12)`, `(pp. 12–13)`), PowerPoint summaries the slide (`(Slide 4)`).
   - Website summaries end with a link back to the original page.
 - **Flashcards**: question-and-answer cards generated from any source, spread across the whole source. Each card shows where it came from: the video moment, the web page, the PDF page or the slides (Word cards don't show a location).
+- **Merged sets**: select 2–8 sources of any type in the Library (**Select**, tick them, **Create merged set**) and get one summary and one flashcard deck from all of them together.
+  - Every point still says which source and where: `(1: p. 12)`, `(2: Slide 4)`, `[3: 02:05]`, with a numbered list of the sources at the top. Cards say, for example, "Graph_PPT.pdf · p. 12".
+  - A set has its own summary and deck, so each document's own summary and flashcards stay as they are. Picking the same documents again opens the existing set instead of making a copy.
+  - Limits: 8 documents and 80,000 characters of text per set. If you delete a document, the set says its summary and cards are out of date until you regenerate them.
 - **Ask questions**: search across everything you've saved and get an AI answer, with links to the sources it used (the exact video moment for YouTube, the page for websites) and the page for PDFs.
 - **No duplicate links**: adding a web page or YouTube video that's already in your library is refused, with an "Open it" link to the saved copy. Different forms of the same link count as the same (`http`/`https`, `www.`, `#section` or tracking parameters for pages; `youtu.be`, `/shorts/` or `&t=` for videos). To re-import, delete the saved copy first.
-- **Clear AI errors**: if the AI service can't respond (out of credits, invalid API key, rate limit, timeout, outage), the page says so in plain words. The technical details go to the backend log.
+- **Clear AI errors**: if the AI service can't respond (out of credits, invalid API key, rate limit, the daily free-model limit, timeout, outage), the page says so in plain words. The technical details go to the backend log. Momentary failures, such as an overloaded provider, are retried automatically.
 
 Old `.ppt` and `.doc` files aren't supported; save them as `.pptx` / `.docx` first. Website import only reads public pages (no logins, paywalls, or JavaScript-only apps) up to 5 MB, and blocks local and private network addresses.
 
