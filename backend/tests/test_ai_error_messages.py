@@ -23,6 +23,11 @@ import httpx
 import openai
 from fastapi import HTTPException
 
+from types import SimpleNamespace
+
+# The signed-in user the route functions are called for (routes take it from get_current_user).
+TEST_USER = SimpleNamespace(id=1)
+
 from app.services.ai import summary_service as ss
 from app.services.ai import flashcard_service as fs
 from app.services import search_service
@@ -143,7 +148,7 @@ def test_flashcard_route_message_reads_well():
     })
     with patch.object(fs, "client", failing_client(status_error(402))):
         try:
-            study.create_flashcards(3, count=5, db=db)
+            study.create_flashcards(3, count=5, db=db, user=TEST_USER)
         except HTTPException as e:
             assert e.status_code == 502
             assert e.detail == ("The AI service is out of credits. Add credits at openrouter.ai to generate "
@@ -156,7 +161,7 @@ def test_search_returns_an_error_instead_of_an_error_answer():
     with patch.object(search_service, "client", failing_client(status_error(402))), \
          patch.object(search_route, "search_similar_chunks", return_value=[(0.9, "text", "doc", None, "pdf", None, "p. 1")]):
         try:
-            search_route.search(query="What is ATP?")
+            search_route.search(query="What is ATP?", user=TEST_USER)
         except HTTPException as e:
             assert e.status_code == 502 and "out of credits" in e.detail, e.detail
             assert_plain(e.detail)

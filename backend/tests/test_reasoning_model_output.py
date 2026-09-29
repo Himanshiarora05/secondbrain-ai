@@ -24,6 +24,11 @@ os.environ["HF_HUB_OFFLINE"] = "1"
 
 from fastapi import HTTPException
 
+from types import SimpleNamespace
+
+# The signed-in user the route functions are called for (routes take it from get_current_user).
+TEST_USER = SimpleNamespace(id=1)
+
 from app.services.ai import summary_service as ss
 from app.services.ai import flashcard_service as fs
 from app.services import search_service
@@ -112,7 +117,7 @@ def test_search_with_empty_reply_is_a_502():
     with patch.object(search_service, "client", replying_client(None)), patch.object(ss, "logger"), \
          patch.object(search_route, "search_similar_chunks", return_value=[(0.9, "text", "doc", None, "pdf", None, "p. 1")]):
         try:
-            search_route.search(query="What is a graph?")
+            search_route.search(query="What is a graph?", user=TEST_USER)
         except HTTPException as e:
             assert e.status_code == 502 and e.detail == "The AI returned an empty reply. Please try again.", e.detail
         else:

@@ -97,3 +97,10 @@ def init_db():
                 "ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS source_url VARCHAR;"
             )
         )
+        # Ownership (user accounts). Existing rows stay null until
+        # scripts/assign_documents_to_user.py assigns them.
+        for table in ("documents", "merged_sets"):
+            conn.execute(text(
+                f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id);"
+            ))
+            conn.execute(text(f"CREATE INDEX IF NOT EXISTS ix_{table}_user_id ON {table} (user_id);"))

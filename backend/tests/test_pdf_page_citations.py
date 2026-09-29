@@ -24,6 +24,11 @@ os.environ["HF_HUB_OFFLINE"] = "1"
 import fitz
 from fastapi import UploadFile
 
+from types import SimpleNamespace
+
+# The signed-in user the route functions are called for (routes take it from get_current_user).
+TEST_USER = SimpleNamespace(id=1)
+
 from app.api import upload
 from app.services.pdf.pdf_service import PDFService
 from app.services.rag.rag_service import RAGService
@@ -114,7 +119,7 @@ def test_upload_pdf_stores_page_ranges():
     tmp = Path(tempfile.mkdtemp(prefix="sb-test-uploads-"))
     with patch.object(upload, "UPLOAD_DIR", tmp), \
          patch.object(upload, "_store_document_and_chunks", return_value={"status": "stored"}) as store:
-        result = asyncio.run(upload.upload_pdf(file=UploadFile(file=io.BytesIO(data), filename="notes.pdf"), db=MagicMock()))
+        result = asyncio.run(upload.upload_pdf(file=UploadFile(file=io.BytesIO(data), filename="notes.pdf"), db=MagicMock(), user=TEST_USER))
     assert result == {"status": "stored"}
     kw = store.call_args.kwargs
     assert len(kw["chunks"]) == len(kw["chunk_pages"]) >= 2
@@ -206,7 +211,7 @@ def test_pdf_flashcards_cite_pages_through_the_route():
     client = MagicMock()
     client.chat.completions.create.return_value = reply
     with patch.object(fs, "client", client), patch.object(fs, "CARDS_PER_CALL", 10):
-        result = study.create_flashcards(9, count=2, db=db)
+        result = study.create_flashcards(9, count=2, db=db, user=TEST_USER)
     labels = {c["question"]: (c["source_label"], c["source_url"]) for c in result["flashcards"]}
     assert labels == {"What makes ATP?": ("pp. 3–4", None), "What are cells?": ("p. 3", None)}, labels
 
@@ -317,7 +322,7 @@ def test_summary_route_picks_cited_or_plain_summary():
         with patch.object(study, "generate_summary", return_value="- Plain summary") as plain, \
              patch.object(study, "generate_cited_summary",
                           side_effect=lambda chunks, cites: replace_labels("- Point [S0]", cites)) as cited:
-            result = study.create_or_regenerate_summary(4, regenerate=False, db=_summary_db(_doc(source_type), rows))
+            result = study.create_or_regenerate_summary(4, regenerate=False, db=_summary_db(_doc(source_type), rows), user=TEST_USER)
         assert result["summary"] == expected, (source_type, kind, result["summary"])
         assert (cited.called, plain.called) == ((True, False) if kind == "cited" else (False, True)), (source_type, kind)
 
@@ -342,10 +347,11 @@ def test_search_matches_carry_a_location():
     }
     with patch.object(search_service, "get_collection", return_value=collection), \
          patch.object(search_service, "get_embedding", return_value=[0.0]):
-        results = search_service.search_similar_chunks("q")
+        results = search_service.search_similar_chunks("q", TEST_USER.id)
+        assert collection.query.call_args.kwargs["where"] == {"user_id": TEST_USER.id}, "only the user's chunks"
         assert [r[6] for r in results] == ["pp. 3–4", None, "00:46", None]
         with patch.object(search_route, "generate_answer", return_value="An answer."):
-            response = search_route.search(query="q")
+            response = search_route.search(query="q", user=TEST_USER)
     assert [m["location"] for m in response["top_matches"]] == ["pp. 3–4", None, "00:46"]
 
 

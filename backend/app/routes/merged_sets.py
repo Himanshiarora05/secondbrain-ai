@@ -18,10 +18,12 @@ from app.database.db import get_db
 from app.models.chunk import Chunk
 from app.models.document import Document
 from app.models.merged_set import MergedFlashcard, MergedSet, MergedSetDocument, MergedSummary
+from app.models.user import User
 from app.routes.documents import MAX_NAME_LENGTH
 from app.services.ai.flashcard_service import build_chunk_citations
 from app.services.ai.merged_service import MergedSource, generate_merged_flashcards, generate_merged_summary
 from app.services.ai.summary_service import AIGenerationError
+from app.services.auth_service import get_current_user
 
 router = APIRouter(prefix="/api/v1/merged-sets", tags=["Merged sets"])
 
@@ -79,12 +81,13 @@ def _member_ids(db: Session, set_id: int) -> List[int]:
     ]
 
 
-def _find_same_set(db: Session, document_ids: List[int]) -> Optional[int]:
-    """The oldest set whose current members are exactly these documents, if any."""
+def _find_same_set(db: Session, document_ids: List[int], user_id: int) -> Optional[int]:
+    """The user's oldest set whose current members are exactly these documents, if any."""
     wanted = set(document_ids)
     candidates = (
         db.query(MergedSetDocument.set_id)
-        .filter(MergedSetDocument.document_id.in_(wanted))
+        .join(MergedSet, MergedSet.id == MergedSetDocument.set_id)
+        .filter(MergedSetDocument.document_id.in_(wanted), MergedSet.user_id == user_id)
         .group_by(MergedSetDocument.set_id)
         .having(func.count(MergedSetDocument.document_id) == len(wanted))
         .order_by(MergedSetDocument.set_id.asc())
@@ -149,15 +152,16 @@ def set_dicts(db: Session, sets: List[MergedSet]) -> List[dict]:
     return result
 
 
-def _get_set(db: Session, set_id: int) -> MergedSet:
-    merged = db.query(MergedSet).filter(MergedSet.id == set_id).first()
+def _get_set(db: Session, set_id: int, user: User) -> MergedSet:
+    """The user's set, or 404 (another user's set looks like a missing one)."""
+    merged = db.query(MergedSet).filter(MergedSet.id == set_id, MergedSet.user_id == user.id).first()
     if not merged:
         raise HTTPException(status_code=404, detail="Merged set not found")
     return merged
 
 
 @router.post("")
-def create_merged_set(body: CreateMergedSetRequest, db: Session = Depends(get_db)):
+def create_merged_set(body: CreateMergedSetRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     document_ids = list(dict.fromkeys(body.document_ids))  # drop repeats, keep selection order
     if len(document_ids) < MIN_DOCUMENTS:
         raise HTTPException(status_code=400, detail=f"Pick at least {MIN_DOCUMENTS} documents to merge.")
@@ -168,7 +172,7 @@ def create_merged_set(body: CreateMergedSetRequest, db: Session = Depends(get_db
     docs = {
         row.id: row for row in
         db.query(Document.id, Document.filename, func.coalesce(func.length(Document.content), 0).label("chars"))
-        .filter(Document.id.in_(document_ids)).all()
+        .filter(Document.id.in_(document_ids), Document.user_id == user.id).all()
     }
     missing = [i for i in document_ids if i not in docs]
     if missing:
@@ -182,12 +186,12 @@ def create_merged_set(body: CreateMergedSetRequest, db: Session = Depends(get_db
         )
 
     _lock_creation(db)
-    existing_id = _find_same_set(db, document_ids)
+    existing_id = _find_same_set(db, document_ids, user.id)
     if existing_id is not None:
         db.commit()  # releases the lock
-        return {"created": False, "merged_set": set_dicts(db, [_get_set(db, existing_id)])[0]}
+        return {"created": False, "merged_set": set_dicts(db, [_get_set(db, existing_id, user)])[0]}
 
-    merged = MergedSet(name=name or default_set_name([docs[i].filename for i in document_ids]))
+    merged = MergedSet(name=name or default_set_name([docs[i].filename for i in document_ids]), user_id=user.id)
     merged.members = [MergedSetDocument(document_id=doc_id, position=pos) for pos, doc_id in enumerate(document_ids)]
     db.add(merged)
     db.commit()
@@ -196,20 +200,20 @@ def create_merged_set(body: CreateMergedSetRequest, db: Session = Depends(get_db
 
 
 @router.get("")
-def list_merged_sets(db: Session = Depends(get_db)):
-    sets = db.query(MergedSet).order_by(MergedSet.created_at.desc(), MergedSet.id.desc()).all()
+def list_merged_sets(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    sets = db.query(MergedSet).filter(MergedSet.user_id == user.id).order_by(MergedSet.created_at.desc(), MergedSet.id.desc()).all()
     return set_dicts(db, sets)
 
 
 @router.get("/{set_id}")
-def get_merged_set(set_id: int, db: Session = Depends(get_db)):
-    return set_dicts(db, [_get_set(db, set_id)])[0]
+def get_merged_set(set_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return set_dicts(db, [_get_set(db, set_id, user)])[0]
 
 
 @router.patch("/{set_id}")
-def rename_merged_set(set_id: int, body: RenameMergedSetRequest, db: Session = Depends(get_db)):
+def rename_merged_set(set_id: int, body: RenameMergedSetRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     name = _clean_name(body.name)
-    merged = _get_set(db, set_id)
+    merged = _get_set(db, set_id, user)
     if name != merged.name:
         merged.name = name
         db.commit()
@@ -218,9 +222,9 @@ def rename_merged_set(set_id: int, body: RenameMergedSetRequest, db: Session = D
 
 
 @router.delete("/{set_id}")
-def delete_merged_set(set_id: int, db: Session = Depends(get_db)):
+def delete_merged_set(set_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Deletes the set with its merged summary and cards; its documents are untouched."""
-    merged = _get_set(db, set_id)
+    merged = _get_set(db, set_id, user)
     name = merged.name
     db.delete(merged)
     db.commit()
@@ -283,8 +287,9 @@ def create_merged_summary(
     set_id: int,
     regenerate: bool = Query(False, description="Replace the existing merged summary"),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    merged = _get_set(db, set_id)
+    merged = _get_set(db, set_id, user)
     existing = db.query(MergedSummary).filter(MergedSummary.set_id == set_id).first()
     if existing and not regenerate:
         return _summary_dict(merged, existing, _member_ids(db, set_id))
@@ -326,8 +331,8 @@ def create_merged_summary(
 
 
 @router.get("/{set_id}/summary")
-def get_merged_summary(set_id: int, db: Session = Depends(get_db)):
-    merged = _get_set(db, set_id)
+def get_merged_summary(set_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    merged = _get_set(db, set_id, user)
     summary = db.query(MergedSummary).filter(MergedSummary.set_id == set_id).first()
     if not summary:
         raise HTTPException(status_code=404, detail="No merged summary yet")
@@ -366,9 +371,10 @@ def create_merged_flashcards(
     set_id: int,
     count: int = Query(10, ge=1, le=50, description="Number of flashcards in the deck"),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     """Generate the set's deck, replacing its previous merged deck only on success."""
-    merged = _get_set(db, set_id)
+    merged = _get_set(db, set_id, user)
     sources = load_sources(db, merged)
     if len(sources) < MIN_DOCUMENTS:
         raise HTTPException(
@@ -405,6 +411,6 @@ def create_merged_flashcards(
 
 
 @router.get("/{set_id}/flashcards")
-def get_merged_flashcards(set_id: int, db: Session = Depends(get_db)):
-    _get_set(db, set_id)
+def get_merged_flashcards(set_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    _get_set(db, set_id, user)
     return _deck_dict(set_id, _saved_cards(db, set_id))

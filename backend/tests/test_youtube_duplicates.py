@@ -21,6 +21,11 @@ os.environ["HF_HUB_OFFLINE"] = "1"
 
 from fastapi import HTTPException
 
+from types import SimpleNamespace
+
+# The signed-in user the route functions are called for (routes take it from get_current_user).
+TEST_USER = SimpleNamespace(id=1)
+
 from app.api import upload
 
 VIDEO = "jNQXAC9IVRw"
@@ -42,7 +47,7 @@ def _call(url, saved=(), fetch=None):
          patch.object(upload, "_store_document_and_chunks", return_value={"status": "stored"}) as store, \
          patch.object(upload, "logger"):
         try:
-            result = asyncio.run(upload.upload_youtube(upload.YouTubeUploadRequest(url=url), db=db))
+            result = asyncio.run(upload.upload_youtube(upload.YouTubeUploadRequest(url=url), db=db, user=TEST_USER))
         except HTTPException as e:
             result = e
     return result, fetch, store

@@ -14,6 +14,8 @@ from app.database.db import get_db
 from app.database.chroma import get_collection
 from app.models.document import Document
 from app.models.chunk import Chunk
+from app.models.user import User
+from app.services.auth_service import get_current_user
 from app.services.pdf.pdf_service import PDFService
 from app.services.ppt.ppt_service import PPTService
 from app.services.docx.docx_service import DOCXService
@@ -94,6 +96,7 @@ def _store_document_and_chunks(
     metadata_json: Optional[str] = None,
     chunk_start_seconds: Optional[List[int]] = None,
     chunk_pages: Optional[List[Tuple[int, int]]] = None,
+    user_id: Optional[int] = None,
 ) -> dict:
     """Shared helper to persist Document and Chunks to PostgreSQL and Chroma."""
     try:
@@ -113,6 +116,7 @@ def _store_document_and_chunks(
         source_type=source_type,
         source_url=source_url,
         metadata_json=metadata_json,
+        user_id=user_id,
     )
     db.add(doc)
     
@@ -145,6 +149,9 @@ def _store_document_and_chunks(
                 "chunk_index": i,
                 "source_type": source_type,
             }
+            # Search only returns the signed-in user's chunks (search_service filters on it).
+            if user_id is not None:
+                meta["user_id"] = user_id
             if source_url:
                 meta["source_url"] = source_url
             if start_sec is not None:
@@ -191,7 +198,9 @@ def _store_document_and_chunks(
 
 
 @router.post("/pdf")
-async def upload_pdf(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_pdf(
+    file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
     if file.content_type != "application/pdf" and not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
@@ -225,6 +234,7 @@ async def upload_pdf(file: UploadFile = File(...), db: Session = Depends(get_db)
             raise HTTPException(status_code=400, detail="No usable text chunks after processing")
 
         return _store_document_and_chunks(
+            user_id=user.id,
             db=db,
             file_id=file_id,
             filename=file.filename,
@@ -236,7 +246,9 @@ async def upload_pdf(file: UploadFile = File(...), db: Session = Depends(get_db)
 
 
 @router.post("/pptx")
-async def upload_pptx(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_pptx(
+    file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
     filename = file.filename or ""
     if filename.lower().endswith(".ppt"):
         raise HTTPException(status_code=400, detail=LEGACY_PPT_MESSAGE)
@@ -279,6 +291,7 @@ async def upload_pptx(file: UploadFile = File(...), db: Session = Depends(get_db
             raise HTTPException(status_code=400, detail="No usable text chunks after processing")
 
         return _store_document_and_chunks(
+            user_id=user.id,
             db=db,
             file_id=file_id,
             filename=filename,
@@ -289,7 +302,9 @@ async def upload_pptx(file: UploadFile = File(...), db: Session = Depends(get_db
 
 
 @router.post("/docx")
-async def upload_docx(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_docx(
+    file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
     filename = file.filename or ""
     if filename.lower().endswith(".doc"):
         raise HTTPException(status_code=400, detail=LEGACY_DOC_MESSAGE)
@@ -332,6 +347,7 @@ async def upload_docx(file: UploadFile = File(...), db: Session = Depends(get_db
             raise HTTPException(status_code=400, detail="No usable text chunks after processing")
 
         return _store_document_and_chunks(
+            user_id=user.id,
             db=db,
             file_id=file_id,
             filename=filename,
@@ -342,13 +358,15 @@ async def upload_docx(file: UploadFile = File(...), db: Session = Depends(get_db
 
 
 @router.post("/youtube")
-async def upload_youtube(payload: YouTubeUploadRequest, db: Session = Depends(get_db)):
+async def upload_youtube(
+    payload: YouTubeUploadRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
     url = payload.url.strip()
     if not url:
         raise HTTPException(status_code=400, detail="Please provide a valid YouTube URL")
 
     # Same video = same video ID, whatever the link form (youtu.be, shorts, &t=, playlist...).
-    existing = _find_existing_youtube(db, YouTubeService.extract_video_id(url))
+    existing = _find_existing_youtube(db, YouTubeService.extract_video_id(url), user.id)
     if existing:
         raise _already_imported(existing, "video")
 
@@ -380,6 +398,7 @@ async def upload_youtube(payload: YouTubeUploadRequest, db: Session = Depends(ge
     display_title = f"YouTube: {video_id}"
 
     return _store_document_and_chunks(
+        user_id=user.id,
         db=db,
         file_id=file_id,
         filename=display_title,
@@ -392,8 +411,8 @@ async def upload_youtube(payload: YouTubeUploadRequest, db: Session = Depends(ge
     )
 
 
-def _find_existing_website(db: Session, url: str) -> Optional[Document]:
-    """The saved website document for the same page as `url` (see url_key), if any.
+def _find_existing_website(db: Session, url: str, user_id: int) -> Optional[Document]:
+    """The user's saved website document for the same page as `url` (see url_key), if any.
 
     Compares against each document's final URL and the link originally entered.
     """
@@ -402,7 +421,7 @@ def _find_existing_website(db: Session, url: str) -> Optional[Document]:
         return None
     rows = (
         db.query(Document.id, Document.filename, Document.source_url, Document.metadata_json)
-        .filter(Document.source_type == "website")
+        .filter(Document.source_type == "website", Document.user_id == user_id)
         .all()
     )
     for row in rows:
@@ -416,13 +435,13 @@ def _find_existing_website(db: Session, url: str) -> Optional[Document]:
     return None
 
 
-def _find_existing_youtube(db: Session, video_id: Optional[str]) -> Optional[Document]:
-    """The saved YouTube document for this video ID, if any (oldest first)."""
+def _find_existing_youtube(db: Session, video_id: Optional[str], user_id: int) -> Optional[Document]:
+    """The user's saved YouTube document for this video ID, if any (oldest first)."""
     if not video_id:
         return None
     rows = (
         db.query(Document.id, Document.filename, Document.source_url)
-        .filter(Document.source_type == "youtube")
+        .filter(Document.source_type == "youtube", Document.user_id == user_id)
         .order_by(Document.id.asc())
         .all()
     )
@@ -446,20 +465,22 @@ def _already_imported(row, kind: str = "page") -> HTTPException:
 
 # Plain def (not async): fetching and extraction block, so FastAPI runs this in a worker thread.
 @router.post("/website")
-def upload_website(payload: WebsiteUploadRequest, db: Session = Depends(get_db)):
+def upload_website(
+    payload: WebsiteUploadRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
     url = payload.url.strip()
     if not url:
         raise HTTPException(status_code=400, detail="Please provide a web page link")
 
     # Checked before fetching (saves the download) and again after redirects,
     # so a short or http:// link to a page that's already saved is caught too.
-    existing = _find_existing_website(db, url)
+    existing = _find_existing_website(db, url, user.id)
     if existing:
         raise _already_imported(existing)
 
     try:
         page = WebService.fetch_page(url)
-        existing = _find_existing_website(db, page.url)
+        existing = _find_existing_website(db, page.url, user.id)
         if existing:
             raise _already_imported(existing)
         article = WebService.extract_article(page.html, page.url)
@@ -480,6 +501,7 @@ def upload_website(payload: WebsiteUploadRequest, db: Session = Depends(get_db))
         raise HTTPException(status_code=400, detail="No usable text chunks after processing")
 
     return _store_document_and_chunks(
+        user_id=user.id,
         db=db,
         file_id=str(uuid.uuid4()),
         filename=article.title,

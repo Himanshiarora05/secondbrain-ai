@@ -20,6 +20,11 @@ os.environ["HF_HUB_OFFLINE"] = "1"
 
 from fastapi import HTTPException
 
+from types import SimpleNamespace
+
+# The signed-in user the route functions are called for (routes take it from get_current_user).
+TEST_USER = SimpleNamespace(id=1)
+
 from app.database.chroma import get_collection
 from app.routes import documents
 from app.routes.documents import RenameRequest, rename_document
@@ -53,7 +58,7 @@ def _doc(doc_id, filename):
 
 def _call(doc_id, name, db):
     try:
-        return rename_document(doc_id, RenameRequest(filename=name), db=db)
+        return rename_document(doc_id, RenameRequest(filename=name), db=db, user=TEST_USER)
     except HTTPException as e:
         return e
 
