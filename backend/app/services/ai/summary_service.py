@@ -10,6 +10,7 @@ import logging
 import os
 import re
 from typing import List, Optional, Tuple
+import httpx
 import openai
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -93,15 +94,36 @@ MAP_REDUCE_THRESHOLD = 6000
 REASONING_ALLOWANCE = 3000
 
 
-def warn_if_cut_off(response, what: str) -> None:
+_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+
+def check_reply(response, what: str) -> None:
+    """Raise for an error sent inside a 200 reply; log a reply that was cut off.
+
+    OpenRouter sometimes answers HTTP 200 with {"error": {"code": 503, ...}} and
+    no choices (e.g. "Upstream error from Nvidia: Service temporarily
+    overloaded"). The SDK doesn't raise for that, so it's raised here as the
+    APIStatusError it stands for: ai_failure gives the matching message and the
+    flashcard retry rules apply as for a real 503.
+    """
+    if not response.choices:
+        error = getattr(response, "error", None) or {}
+        code = error.get("code") if isinstance(error, dict) else None
+        status = code if isinstance(code, int) and 400 <= code <= 599 else 502
+        raise openai.APIStatusError(
+            f"Error code: {status} - {error or 'reply without choices'}",
+            response=httpx.Response(status, request=httpx.Request("POST", _COMPLETIONS_URL)),
+            body=error or None,
+        )
     if response.choices[0].finish_reason == "length":
         logger.warning(f"AI reply hit the length limit while {what} (model {MODEL_NAME}); the text is cut off")
 
 
 def reply_text(response, what: str) -> str:
-    """The reply's text. Logs when it was cut off; raises AIGenerationError when
-    there is none (a reasoning model can use up the whole budget thinking)."""
-    warn_if_cut_off(response, what)
+    """The reply's text. Raises for an error reply (see check_reply) and, as
+    AIGenerationError, when there is no text (a reasoning model can use up the
+    whole budget thinking); logs a reply that was cut off."""
+    check_reply(response, what)
     text = (response.choices[0].message.content or "").strip()
     if not text:
         logger.warning(f"AI reply had no text while {what} (model {MODEL_NAME})")

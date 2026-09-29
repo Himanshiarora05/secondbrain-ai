@@ -16,7 +16,7 @@ from openai import OpenAI
 
 from app.services.rag.rag_service import RAGService
 from app.services.ai.summary_service import (
-    MODEL_NAME, REASONING_ALLOWANCE, AIGenerationError, ai_failure, format_pages, format_timestamp, warn_if_cut_off,
+    MODEL_NAME, REASONING_ALLOWANCE, AIGenerationError, ai_failure, format_pages, format_timestamp, check_reply,
 )
 from app.services.youtube.youtube_service import YouTubeService
 
@@ -123,7 +123,7 @@ STRICT JSON FLASHCARDS:"""
                 temperature=0.4 if attempt == 0 else 0.2,
                 max_tokens=1200 + REASONING_ALLOWANCE,
             )
-            warn_if_cut_off(response, "generating flashcards")
+            check_reply(response, "generating flashcards")
             content = response.choices[0].message.content or ""
             cards = _parse_flashcard_json(content)
             if cards:
