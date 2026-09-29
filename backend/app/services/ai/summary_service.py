@@ -9,6 +9,7 @@ to avoid context overflow and provide a coherent, high-yield summary.
 import logging
 import os
 import re
+import time
 from typing import List, Optional, Tuple
 import httpx
 import openai
@@ -43,8 +44,26 @@ _AI_STATUS_MESSAGES = {
 }
 
 
+def is_daily_limit(exc: BaseException) -> bool:
+    """OpenRouter's daily cap on free-model requests (50 a day on an account
+    without credits). It only resets the next day, so retrying can't help."""
+    return (
+        isinstance(exc, openai.APIStatusError)
+        and exc.status_code == 429
+        and ("free-models-per-day" in str(exc) or "openrouter_free_tier_daily" in str(exc))
+    )
+
+
+DAILY_LIMIT_MESSAGE = (
+    "Today's free AI requests are used up (free models allow 50 a day on an account without credits). "
+    "They reset at midnight UTC, or add credits at openrouter.ai to raise the limit."
+)
+
+
 def ai_error_message(exc: BaseException) -> str:
     """Turn an OpenAI/OpenRouter failure into a plain message for the user."""
+    if is_daily_limit(exc):
+        return DAILY_LIMIT_MESSAGE
     if isinstance(exc, openai.APITimeoutError):
         return "The AI service took too long to respond. Please try again."
     if isinstance(exc, openai.APIConnectionError):
@@ -131,6 +150,44 @@ def reply_text(response, what: str) -> str:
     return text
 
 
+# A summary can take many calls (map-reduce, merged sets) and a single
+# momentary failure would fail all of it, so temporary ones are retried.
+TRANSIENT_RETRIES = 2
+RETRY_DELAY_SECONDS = 2.0
+
+
+def _is_transient(exc: BaseException) -> bool:
+    """Overloaded / rate-limited / unreachable: worth another try. Key or credit problems aren't."""
+    if isinstance(exc, (openai.APITimeoutError, openai.APIConnectionError)):
+        return True
+    if isinstance(exc, openai.APIStatusError):
+        if is_daily_limit(exc):
+            return False
+        return exc.status_code == 429 or exc.status_code >= 500
+    return False
+
+
+def _complete(what: str, messages: list, temperature: float, max_tokens: int) -> str:
+    """One summary AI call: the reply's text, retrying temporary failures.
+
+    Raises AIGenerationError with a plain message (see ai_failure).
+    """
+    for attempt in range(TRANSIENT_RETRIES + 1):
+        try:
+            response = client.chat.completions.create(
+                model=MODEL_NAME, messages=messages, temperature=temperature, max_tokens=max_tokens,
+            )
+            return reply_text(response, what)
+        except AIGenerationError:
+            raise
+        except Exception as e:
+            if attempt < TRANSIENT_RETRIES and _is_transient(e):
+                logger.warning(f"AI call failed while {what} ({e}); retrying ({attempt + 1}/{TRANSIENT_RETRIES})")
+                time.sleep(RETRY_DELAY_SECONDS * (attempt + 1))
+                continue
+            raise ai_failure(e, what) from e
+
+
 def _summarize_chunk(chunk_text: str) -> str:
     """Briefly summarize an individual chunk during the map step."""
     prompt = f"""You are an expert academic tutor. Extract key concepts, definitions, formulas, and main points from the text below as bullet points.
@@ -140,21 +197,15 @@ Text:
 
 Summary Notes:"""
 
-    try:
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": "You are a concise academic tutor extracting high-yield study points."},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.3,
-            max_tokens=400 + REASONING_ALLOWANCE,
-        )
-        return reply_text(response, "summarizing a section")
-    except AIGenerationError:
-        raise
-    except Exception as e:
-        raise ai_failure(e, "summarizing a section") from e
+    return _complete(
+        "summarizing a section",
+        [
+            {"role": "system", "content": "You are a concise academic tutor extracting high-yield study points."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.3,
+        max_tokens=400 + REASONING_ALLOWANCE,
+    )
 
 
 def generate_summary(document_text: str) -> str:
@@ -205,21 +256,15 @@ def _final_summary(source_content: str, system_prompt: str, max_tokens: int = 90
 
 Exam Revision Summary:"""
 
-    try:
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.4,
-            max_tokens=max_tokens + REASONING_ALLOWANCE,
-        )
-        return reply_text(response, "generating a summary")
-    except AIGenerationError:
-        raise
-    except Exception as e:
-        raise ai_failure(e, "generating a summary") from e
+    return _complete(
+        "generating a summary",
+        [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.4,
+        max_tokens=max_tokens + REASONING_ALLOWANCE,
+    )
 
 
 def append_source_link(summary: str, title: str, url: str) -> str:
@@ -245,6 +290,8 @@ def append_source_link(summary: str, title: str, url: str) -> str:
 # they're replaced along with the label.
 _LABEL = r"\\?\[\s*S\d+(?:\s*,\s*S\d+)*\s*\\?\]"
 _CITATION_RE = re.compile(rf"{_LABEL}(?:[ \t]*{_LABEL})*")
+# A run the model put in its own parentheses: "([S3])" would become "((p. 12))".
+_WRAPPED_CITATION_RE = re.compile(rf"\(\s*({_LABEL}(?:[ \t]*{_LABEL})*)\s*\)")
 
 CITATION_RULE = (
     "The material is split into sections labelled [S0], [S1], [S2], ... "
@@ -284,9 +331,9 @@ def replace_labels(text: str, citations: List[Citation], join_plain=None) -> str
     """
     join_plain = join_plain or "; ".join
 
-    def replace(match: re.Match) -> str:
+    def render(run: str):
         links, plain, seen = [], [], set()
-        for idx in (int(n) for n in re.findall(r"S(\d+)", match.group(0))):
+        for idx in (int(n) for n in re.findall(r"S(\d+)", run)):
             citation = citations[idx] if idx < len(citations) else None
             if citation is None or citation in seen:
                 continue
@@ -296,10 +343,20 @@ def replace_labels(text: str, citations: List[Citation], join_plain=None) -> str
                 links.append(f"[{label}]({url})")
             else:
                 plain.append(label)
-        parts = links + ([f"({join_plain(plain)})"] if plain else [])
-        return " ".join(parts)
+        return links, plain
 
-    replaced = _CITATION_RE.sub(replace, text)
+    def replace(match: re.Match) -> str:
+        links, plain = render(match.group(0))
+        return " ".join(links + ([f"({join_plain(plain)})"] if plain else []))
+
+    def replace_wrapped(match: re.Match) -> str:
+        # Keep one pair of parentheses: plain citations bring their own, links get one.
+        links, plain = render(match.group(1))
+        if plain:
+            return " ".join(links + [f"({join_plain(plain)})"])
+        return f"({' '.join(links)})" if links else ""
+
+    replaced = _CITATION_RE.sub(replace, _WRAPPED_CITATION_RE.sub(replace_wrapped, text))
     # Dropping an invalid label can leave a trailing space before a newline.
     return re.sub(r"[ \t]+$", "", replaced, flags=re.MULTILINE)
 
@@ -313,21 +370,15 @@ def link_citations(text: str, start_seconds: List[int], source_url: str) -> str:
 
 def _summarize_labelled_batch(labelled_text: str) -> str:
     """Map step for long sources: bullet notes that keep their [S<i>] labels."""
-    try:
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": "You are a concise academic tutor extracting high-yield study points. " + CITATION_RULE},
-                {"role": "user", "content": f"Extract key concepts, definitions, formulas, and main points as bullet points.\n\nText:\n{labelled_text}\n\nSummary Notes:"},
-            ],
-            temperature=0.3,
-            max_tokens=400 + REASONING_ALLOWANCE,
-        )
-        return reply_text(response, "summarizing a section")
-    except AIGenerationError:
-        raise
-    except Exception as e:
-        raise ai_failure(e, "summarizing a section") from e
+    return _complete(
+        "summarizing a section",
+        [
+            {"role": "system", "content": "You are a concise academic tutor extracting high-yield study points. " + CITATION_RULE},
+            {"role": "user", "content": f"Extract key concepts, definitions, formulas, and main points as bullet points.\n\nText:\n{labelled_text}\n\nSummary Notes:"},
+        ],
+        temperature=0.3,
+        max_tokens=400 + REASONING_ALLOWANCE,
+    )
 
 
 def generate_cited_summary(chunks: List[str], citations: List[Citation]) -> str:

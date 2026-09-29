@@ -29,6 +29,8 @@ from fastapi import HTTPException
 from openai import OpenAI
 
 from app.services.ai import summary_service as ss
+
+ss.RETRY_DELAY_SECONDS = 0  # overloads are retried; no need to wait in tests
 from app.services.ai import flashcard_service as fs
 from app.services import search_service
 from app.routes import search as search_route

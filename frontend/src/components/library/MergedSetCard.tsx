@@ -59,7 +59,7 @@ export function MergedSetCard({ set, onOpenSummary, onOpenFlashcards, onRename, 
               <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border text-[#C4B5FD] bg-[rgba(167,139,250,0.2)] border-[rgba(167,139,250,0.3)]">
                 MERGED
               </span>
-              <span className="text-xs text-[#A1A1AA] font-mono">{set.documents.length} sources</span>
+              <span className="text-xs text-[#A1A1AA] font-mono">{set.documents.length} {set.documents.length === 1 ? 'source' : 'sources'}</span>
               <span className="flex items-center gap-1" aria-label={`Source types: ${types.join(', ')}`}>
                 {types.map((t) => (
                   <span key={t} title={sourceBadge(t).label}>{sourceBadge(t, 12).icon}</span>

@@ -175,7 +175,7 @@ export function SummaryPage({ merged = false }: { merged?: boolean }) {
   const badge = merged
     ? {
         icon: <Layers size={14} className="text-[#C4B5FD]" />,
-        label: `MERGED · ${mergedSet?.documents.length ?? '…'} SOURCES`,
+        label: `MERGED · ${mergedSet?.documents.length ?? '…'} ${mergedSet?.documents.length === 1 ? 'SOURCE' : 'SOURCES'}`,
         style: MERGED_BADGE_STYLE,
       }
     : sourceBadge(document?.source_type || 'pdf')

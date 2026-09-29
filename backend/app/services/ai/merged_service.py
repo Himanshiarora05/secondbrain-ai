@@ -46,9 +46,12 @@ MERGED_SYSTEM_PROMPT = (
     "1. Structure with clear Markdown headings and bullet points, organised by topic, not by source.\n"
     "2. When sources cover the same idea, combine them into one point and keep the labels of every source it came from.\n"
     "3. Prominently highlight key definitions and essential formulas/equations.\n"
-    "4. Note where sources disagree, or where one explains something another leaves out.\n"
+    "4. Note where sources disagree, or where one explains something another leaves out. In your sentences, "
+    "call sources 'Source 1', 'Source 2', ... (the numbers in the material's headings); never write the [S0], "
+    "[S1], ... labels (or S0, S1, ...) as words in a sentence, they are only for citing.\n"
     "5. Keep the entire summary concise and strictly under 900 words.\n"
-    "6. Output clean Markdown only. Do not add a list of sources; one is added automatically.\n"
+    "6. Output clean Markdown only. Write formulas in plain text or Unicode (e.g. x₁ + x₂, |V|, v = (x, y)), "
+    "not LaTeX. Do not add a list of sources or a closing remark; the list is added automatically.\n"
     "7. " + CITATION_RULE + " Keep the labels from the material when you combine or rephrase points."
 )
 
@@ -146,7 +149,18 @@ def generate_merged_summary(sources: List[MergedSource]) -> str:
         parts.append(f"{heading(s)}\n{text}")
 
     summary = _final_summary("\n\n".join(parts), MERGED_SYSTEM_PROMPT, max_tokens=FINAL_MAX_TOKENS)
-    return f"{sources_list(sources)}\n\n---\n\n{replace_labels(summary, citations, join_plain=join_by_source)}"
+    body = plain_inline_math(replace_labels(summary, citations, join_plain=join_by_source))
+    return f"{sources_list(sources)}\n\n---\n\n{body}"
+
+
+# Inline LaTeX "\(|V|\)": the page doesn't render maths, and Markdown drops
+# the backslashes, leaving "(|V|)". The prompt asks for plain formulas, but
+# models don't always comply, so the delimiters are removed here.
+_INLINE_MATH_RE = re.compile(r"\\\((.+?)\\\)")
+
+
+def plain_inline_math(text: str) -> str:
+    return _INLINE_MATH_RE.sub(lambda m: m.group(1).strip(), text)
 
 
 # ─── Merged flashcards ───
