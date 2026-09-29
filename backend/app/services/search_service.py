@@ -17,7 +17,9 @@ from openai import OpenAI
 from app.database.chroma import get_collection
 from app.services.embedding_service import get_embedding
 from app.services.youtube.youtube_service import YouTubeService
-from app.services.ai.summary_service import MODEL_NAME, ai_failure, format_pages, format_timestamp
+from app.services.ai.summary_service import (
+    MODEL_NAME, AIGenerationError, ai_failure, format_pages, format_timestamp, reply_text,
+)
 
 load_dotenv()
 
@@ -95,7 +97,9 @@ def generate_answer(query: str, context: str) -> str:
             ],
             temperature=0.5,
         )
-        return response.choices[0].message.content
+        return reply_text(response, "answering a search")
 
+    except AIGenerationError:
+        raise
     except Exception as e:
         raise ai_failure(e, "answering a search") from e
