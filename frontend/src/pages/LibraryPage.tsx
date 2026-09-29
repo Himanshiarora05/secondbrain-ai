@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getDocuments, deleteDocument } from '../api/client'
+import { getDocuments, deleteDocument, renameDocument } from '../api/client'
 import type { DocumentItem } from '../types'
+import { useDocuments } from '../context/DocumentContext'
 import { UploadZone } from '../components/library/UploadZone'
 import { DocumentCard } from '../components/library/DocumentCard'
+import { DocumentNameEditor } from '../components/library/DocumentNameEditor'
 import { EmptyState } from '../components/ui/EmptyState'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
-import { Library as LibraryIcon, Plus, Search, RefreshCw, LayoutGrid, List, Trash2 } from 'lucide-react'
+import { Library as LibraryIcon, Plus, Search, RefreshCw, LayoutGrid, List, Trash2, Pencil } from 'lucide-react'
 
 export function LibraryPage() {
   const [documents, setDocuments] = useState<DocumentItem[]>([])
@@ -15,8 +17,10 @@ export function LibraryPage() {
   const [showUpload, setShowUpload] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards')
+  const [renamingId, setRenamingId] = useState<number | null>(null)
 
   const navigate = useNavigate()
+  const { refreshDocuments } = useDocuments()
 
   const fetchDocuments = async () => {
     setIsLoading(true)
@@ -39,6 +43,14 @@ export function LibraryPage() {
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to delete document')
     }
+  }
+
+  // Throws on failure so the name editor can show the message and stay open.
+  const handleRenameDocument = async (doc: DocumentItem, name: string) => {
+    const renamed = await renameDocument(doc.id, name)
+    setDocuments((prev) => prev.map((d) => (d.id === doc.id ? { ...d, filename: renamed.filename } : d)))
+    // The sidebar reads the shared list, which is a separate copy.
+    refreshDocuments().catch(() => {})
   }
 
   useEffect(() => {
@@ -183,6 +195,7 @@ export function LibraryPage() {
                 onOpenSummary={() => navigate(`/library/${doc.id}/summary`)}
                 onOpenFlashcards={() => navigate(`/library/${doc.id}/flashcards`)}
                 onDelete={handleDeleteDocument}
+                onRename={handleRenameDocument}
               />
             ))
           ) : (
@@ -208,16 +221,25 @@ export function LibraryPage() {
                   filteredDocs.map((doc) => (
                     <tr
                       key={doc.id}
-                      onClick={() => navigate(`/library/${doc.id}/summary`)}
+                      onClick={renamingId === doc.id ? undefined : () => navigate(`/library/${doc.id}/summary`)}
                       className="group hover:bg-[rgba(255,255,255,0.05)] transition-colors duration-200 cursor-pointer"
                     >
                       <td className="px-6 py-4">
-                        <span
-                          className="font-medium text-sm text-white truncate max-w-[200px] md:max-w-[400px] block group-hover:text-[#93C5FD] transition-colors duration-200"
-                          title={doc.filename}
-                        >
-                          {doc.filename}
-                        </span>
+                        {renamingId === doc.id ? (
+                          <DocumentNameEditor
+                            initialName={doc.filename}
+                            onSave={(name) => handleRenameDocument(doc, name)}
+                            onDone={() => setRenamingId(null)}
+                            className="max-w-[200px] md:max-w-[400px]"
+                          />
+                        ) : (
+                          <span
+                            className="font-medium text-sm text-white truncate max-w-[200px] md:max-w-[400px] block group-hover:text-[#93C5FD] transition-colors duration-200"
+                            title={doc.filename}
+                          >
+                            {doc.filename}
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-sm text-[#A1A1AA] whitespace-nowrap font-mono">
                         {doc.total_chunks} chunks
@@ -246,6 +268,15 @@ export function LibraryPage() {
                             className="px-3.5 py-1 rounded-full text-xs font-medium bg-[rgba(59,130,246,0.12)] text-[#93C5FD] hover:bg-gradient-to-r hover:from-[#3B82F6] hover:to-[#1D4ED8] hover:text-white border border-[rgba(59,130,246,0.25)] hover:shadow-[0_0_15px_rgba(59,130,246,0.3)] transition-all duration-200"
                           >
                             Flashcards
+                          </button>
+                          <button
+                            onClick={() => setRenamingId(doc.id)}
+                            disabled={renamingId === doc.id}
+                            className="p-1.5 rounded-full text-[#71717A] hover:text-[#93C5FD] hover:bg-[rgba(59,130,246,0.12)] border border-transparent hover:border-[rgba(59,130,246,0.3)] transition-all duration-200 ml-1 disabled:opacity-40 disabled:pointer-events-none"
+                            title="Rename this document"
+                            aria-label="Rename document"
+                          >
+                            <Pencil size={13} />
                           </button>
                           <button
                             onClick={() => {

@@ -1,11 +1,14 @@
-import { FileText, BookOpen, Layers, Presentation, FileEdit, Video, Globe, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import { FileText, BookOpen, Layers, Presentation, FileEdit, Video, Globe, Trash2, Pencil } from 'lucide-react'
 import type { DocumentItem } from '../../types'
+import { DocumentNameEditor } from './DocumentNameEditor'
 
 interface DocumentCardProps {
   document: DocumentItem
   onOpenSummary?: (doc: DocumentItem) => void
   onOpenFlashcards?: (doc: DocumentItem) => void
   onDelete?: (doc: DocumentItem) => void
+  onRename?: (doc: DocumentItem, name: string) => Promise<void>
   onClick?: () => void
 }
 
@@ -14,8 +17,10 @@ export function DocumentCard({
   onOpenSummary,
   onOpenFlashcards,
   onDelete,
+  onRename,
   onClick,
 }: DocumentCardProps) {
+  const [isRenaming, setIsRenaming] = useState(false)
   const sourceType = (document.source_type || 'pdf').toLowerCase()
 
   const getSourceIconAndBadge = () => {
@@ -73,7 +78,7 @@ export function DocumentCard({
 
   return (
     <div
-      onClick={onClick}
+      onClick={isRenaming ? undefined : onClick}
       style={{
         background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.015) 100%)',
       }}
@@ -87,12 +92,20 @@ export function DocumentCard({
           {icon}
         </div>
         <div className="min-w-0 flex-1">
-          <h4
-            className="text-sm font-semibold text-white truncate group-hover:text-[#93C5FD] transition-colors duration-200"
-            title={document.filename}
-          >
-            {document.filename}
-          </h4>
+          {isRenaming && onRename ? (
+            <DocumentNameEditor
+              initialName={document.filename}
+              onSave={(name) => onRename(document, name)}
+              onDone={() => setIsRenaming(false)}
+            />
+          ) : (
+            <h4
+              className="text-sm font-semibold text-white truncate group-hover:text-[#93C5FD] transition-colors duration-200"
+              title={document.filename}
+            >
+              {document.filename}
+            </h4>
+          )}
           <div className="flex items-center gap-2.5 mt-1.5 flex-wrap">
             <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border ${badgeStyle}`}>
               {badgeText}
@@ -114,7 +127,7 @@ export function DocumentCard({
         </div>
       </div>
 
-      <div className="flex items-center gap-2 self-end @2xl:self-center" onClick={(e) => e.stopPropagation()}>
+      <div className="flex flex-wrap items-center justify-end gap-2 self-end @2xl:self-center" onClick={(e) => e.stopPropagation()}>
         {onOpenSummary && (
           <button
             onClick={() => onOpenSummary(document)}
@@ -137,15 +150,32 @@ export function DocumentCard({
           </button>
         )}
 
-        {onDelete && (
-          <button
-            onClick={handleDelete}
-            className="flex items-center justify-center w-8 h-8 rounded-full bg-[rgba(255,255,255,0.03)] text-[#71717A] border border-[rgba(255,255,255,0.08)] hover:bg-[rgba(239,68,68,0.15)] hover:text-[#F87171] hover:border-[rgba(239,68,68,0.3)] hover:shadow-[0_0_14px_rgba(239,68,68,0.25)] transition-all duration-200 ml-1"
-            title="Delete this document"
-            aria-label="Delete document"
-          >
-            <Trash2 size={13} />
-          </button>
+        {/* Kept together so on a narrow card they wrap as a pair, not one by one. */}
+        {(onRename || onDelete) && (
+          <div className="flex items-center gap-2 ml-1">
+            {onRename && (
+              <button
+                onClick={() => setIsRenaming(true)}
+                disabled={isRenaming}
+                className="flex items-center justify-center w-8 h-8 rounded-full bg-[rgba(255,255,255,0.03)] text-[#71717A] border border-[rgba(255,255,255,0.08)] hover:bg-[rgba(59,130,246,0.12)] hover:text-[#93C5FD] hover:border-[rgba(59,130,246,0.3)] transition-all duration-200 disabled:opacity-40 disabled:pointer-events-none"
+                title="Rename this document"
+                aria-label="Rename document"
+              >
+                <Pencil size={13} />
+              </button>
+            )}
+
+            {onDelete && (
+              <button
+                onClick={handleDelete}
+                className="flex items-center justify-center w-8 h-8 rounded-full bg-[rgba(255,255,255,0.03)] text-[#71717A] border border-[rgba(255,255,255,0.08)] hover:bg-[rgba(239,68,68,0.15)] hover:text-[#F87171] hover:border-[rgba(239,68,68,0.3)] hover:shadow-[0_0_14px_rgba(239,68,68,0.25)] transition-all duration-200"
+                title="Delete this document"
+                aria-label="Delete document"
+              >
+                <Trash2 size={13} />
+              </button>
+            )}
+          </div>
         )}
       </div>
       </div>
