@@ -1,11 +1,14 @@
 import { useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Video, UploadCloud, ArrowRight, Globe } from 'lucide-react'
+import { Plus, Video, UploadCloud, ArrowRight, Globe, CheckCircle2, XCircle, MinusCircle, X } from 'lucide-react'
 import { uploadPDF, uploadPPTX, uploadDOCX, uploadYouTube, uploadWebsite, DuplicateSourceError } from '../../api/client'
+import type { UploadResult } from '../../types'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 
 interface UploadZoneProps {
-  onUploadSuccess: () => void
+  // `multiple` is true after a multi-file upload, whose results (and merge
+  // offer) stay on screen, so the caller shouldn't close the upload area.
+  onUploadSuccess: (info?: { multiple: boolean }) => void
 }
 
 // Same wording as the backend (upload.py); python-pptx/python-docx can't read the old binary formats.
@@ -13,6 +16,31 @@ const LEGACY_PPT_MESSAGE =
   "Old PowerPoint files (.ppt) aren't supported. Open the file in PowerPoint (or Google Slides / LibreOffice), choose File → Save As → .pptx, and upload that."
 const LEGACY_DOC_MESSAGE =
   "Old Word files (.doc) aren't supported. Open the file in Word (or Google Docs / LibreOffice), choose File → Save As → .docx, and upload that."
+
+type FileKind = 'pdf' | 'pptx' | 'docx'
+
+// Which upload endpoint a file goes to, or why it can't be uploaded.
+function classifyFile(file: File): { kind: FileKind } | { error: string } {
+  const filename = file.name.toLowerCase()
+  if (filename.endsWith('.ppt')) return { error: LEGACY_PPT_MESSAGE }
+  if (filename.endsWith('.doc')) return { error: LEGACY_DOC_MESSAGE }
+  if (filename.endsWith('.pdf') || file.type === 'application/pdf') return { kind: 'pdf' }
+  if (filename.endsWith('.pptx')) return { kind: 'pptx' }
+  if (filename.endsWith('.docx')) return { kind: 'docx' }
+  return { error: 'Unsupported file type. Please upload a PDF, PowerPoint (.pptx), or Word (.docx) document.' }
+}
+
+function uploadByKind(kind: FileKind, file: File): Promise<UploadResult> {
+  return kind === 'pdf' ? uploadPDF(file) : kind === 'pptx' ? uploadPPTX(file) : uploadDOCX(file)
+}
+
+// One file of a multi-file upload.
+interface BatchItem {
+  name: string
+  status: 'waiting' | 'uploading' | 'done' | 'failed' | 'skipped'
+  message?: string
+  documentId?: number
+}
 
 const NON_HTTP_SCHEME =/^(javascript|data|mailto|file|ftp|about|blob|vbscript|tel):/i
 
@@ -53,6 +81,8 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
   const [error, setError] = useState<string | null>(null)
   // Set when the error is "already in your library"; only shown while that error is.
   const [duplicate, setDuplicate] = useState<{ message: string; documentId: number } | null>(null)
+  // Results of the last multi-file upload (null for single-file uploads).
+  const [batch, setBatch] = useState<BatchItem[] | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const isUploadingRef = useRef(false)
 
@@ -70,37 +100,74 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
 
     if (isUploadingRef.current) return
 
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      await handleFileUpload(e.dataTransfer.files[0])
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      await handleFiles(Array.from(e.dataTransfer.files))
     }
   }
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (isUploadingRef.current) return
-    if (e.target.files && e.target.files[0]) {
-      await handleFileUpload(e.target.files[0])
+    if (e.target.files && e.target.files.length > 0) {
+      await handleFiles(Array.from(e.target.files))
+    }
+  }
+
+  const handleFiles = async (files: File[]) => {
+    setBatch(null)
+    if (files.length === 1) {
+      await handleFileUpload(files[0])
+    } else {
+      await handleBatchUpload(files)
+    }
+  }
+
+  // Several files: uploaded one after another (each is CPU-heavy on the
+  // server), each becoming its own document. A failed or skipped file
+  // doesn't stop the rest.
+  const handleBatchUpload = async (files: File[]) => {
+    if (isUploadingRef.current) return
+    const kinds = files.map(classifyFile)
+    const items: BatchItem[] = files.map((f, i) => {
+      const k = kinds[i]
+      return 'error' in k ? { name: f.name, status: 'skipped', message: k.error } : { name: f.name, status: 'waiting' }
+    })
+    const update = (i: number, patch: Partial<BatchItem>) => {
+      items[i] = { ...items[i], ...patch }
+      setBatch([...items])
+    }
+
+    isUploadingRef.current = true
+    setError(null)
+    setDuplicate(null)
+    setIsUploading(true)
+    setBatch([...items])
+
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const k = kinds[i]
+        if ('error' in k) continue
+        update(i, { status: 'uploading' })
+        try {
+          const res = await uploadByKind(k.kind, files[i])
+          update(i, { status: 'done', documentId: res.document_id })
+        } catch (err) {
+          update(i, { status: 'failed', message: err instanceof Error ? err.message : 'Upload failed' })
+        }
+      }
+      if (items.some((it) => it.status === 'done')) onUploadSuccess({ multiple: true })
+    } finally {
+      isUploadingRef.current = false
+      setIsUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
 
   const handleFileUpload = async (file: File) => {
     if (isUploadingRef.current) return
 
-    const filename = file.name.toLowerCase()
-    if (filename.endsWith('.ppt')) {
-      setError(LEGACY_PPT_MESSAGE)
-      return
-    }
-    if (filename.endsWith('.doc')) {
-      setError(LEGACY_DOC_MESSAGE)
-      return
-    }
-
-    const isPDF = filename.endsWith('.pdf') || file.type === 'application/pdf'
-    const isPPTX = filename.endsWith('.pptx')
-    const isDOCX = filename.endsWith('.docx')
-
-    if (!isPDF && !isPPTX && !isDOCX) {
-      setError('Unsupported file type. Please upload a PDF, PowerPoint (.pptx), or Word (.docx) document.')
+    const kind = classifyFile(file)
+    if ('error' in kind) {
+      setError(kind.error)
       return
     }
 
@@ -109,13 +176,7 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
     setIsUploading(true)
 
     try {
-      if (isPDF) {
-        await uploadPDF(file)
-      } else if (isPPTX) {
-        await uploadPPTX(file)
-      } else if (isDOCX) {
-        await uploadDOCX(file)
-      }
+      await uploadByKind(kind.kind, file)
       onUploadSuccess()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed')
@@ -222,6 +283,7 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
       </div>
 
       {activeTab === 'file' ? (
+        <>
         <div
           className={`relative flex flex-col items-center justify-center p-10 text-center rounded-2xl border-2 border-dashed transition-all duration-200 cursor-pointer ${
             isDragging
@@ -245,6 +307,7 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
         >
           <input
             type="file"
+            multiple
             className="hidden"
             accept=".pdf,.pptx,.docx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             onChange={handleFileChange}
@@ -252,7 +315,25 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
             disabled={isUploading}
           />
 
-          {isUploading ? (
+          {isUploading && batch ? (
+            <div className="flex flex-col items-center py-8 animate-fade-in" aria-live="polite">
+              <LoadingSpinner size={40} className="mb-4 text-[#3B82F6]" />
+              {(() => {
+                const queue = batch.filter((it) => it.status !== 'skipped')
+                const current = queue.findIndex((it) => it.status === 'uploading')
+                return (
+                  <>
+                    <p className="text-white font-semibold text-base">
+                      Uploading {Math.max(current, 0) + 1} of {queue.length}
+                    </p>
+                    <p className="text-xs text-[#A1A1AA] mt-1.5 max-w-full truncate px-4">
+                      {current >= 0 ? queue[current].name : ''}
+                    </p>
+                  </>
+                )
+              })()}
+            </div>
+          ) : isUploading ? (
             <div className="flex flex-col items-center py-8 animate-fade-in">
               <LoadingSpinner size={40} className="mb-4 text-[#3B82F6]" />
               <p className="text-white font-semibold text-base">Processing Document...</p>
@@ -267,7 +348,7 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
               </div>
               <h3 className="text-lg font-bold text-white mb-2 tracking-tight">Drop your study material here, or browse</h3>
               <p className="text-xs text-[#A1A1AA] mb-6 max-w-sm">
-                Supported formats: PDF lecture notes, PowerPoint presentations, and Word files
+                Supported formats: PDF lecture notes, PowerPoint presentations, and Word files. You can pick several files at once.
               </p>
 
               <div className="flex flex-wrap items-center justify-center gap-2.5 mb-4">
@@ -286,6 +367,48 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
             </div>
           )}
         </div>
+
+        {batch && !isUploading && (
+          <div className="mt-5 p-4 sm:p-5 rounded-2xl bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.08)] animate-fade-in" role="region" aria-label="Upload results">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <p className="text-sm font-semibold text-white">
+                {(() => {
+                  const done = batch.filter((it) => it.status === 'done').length
+                  const notDone = batch.length - done
+                  return `${done} of ${batch.length} uploaded` + (notDone ? ` · ${notDone} not uploaded` : '')
+                })()}
+              </p>
+              <button
+                onClick={() => setBatch(null)}
+                className="p-1 -m-1 rounded-lg text-[#71717A] hover:text-white hover:bg-[rgba(255,255,255,0.06)] transition-colors"
+                aria-label="Dismiss upload results"
+                title="Dismiss"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <ul className="space-y-2">
+              {batch.map((it, i) => (
+                <li key={i} className="flex items-start gap-2.5 text-xs min-w-0">
+                  {it.status === 'done' ? (
+                    <CheckCircle2 size={15} className="text-[#34D399] flex-shrink-0 mt-px" aria-label="Uploaded" />
+                  ) : it.status === 'skipped' ? (
+                    <MinusCircle size={15} className="text-[#FBBF24] flex-shrink-0 mt-px" aria-label="Skipped" />
+                  ) : (
+                    <XCircle size={15} className="text-[#F87171] flex-shrink-0 mt-px" aria-label="Failed" />
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-[#D1D5DB] truncate" title={it.name}>{it.name}</p>
+                    {it.message && (
+                      <p className={it.status === 'skipped' ? 'text-[#FBBF24]' : 'text-[#F87171]'}>{it.message}</p>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        </>
       ) : activeTab === 'website' ? (
         <form onSubmit={handleWebsiteSubmit} noValidate className="flex flex-col items-center p-8 text-center max-w-xl mx-auto">
           <div className="w-14 h-14 rounded-2xl bg-[rgba(34,211,238,0.15)] border border-[rgba(34,211,238,0.25)] flex items-center justify-center text-[#22D3EE] mb-4 shadow-[0_0_20px_rgba(34,211,238,0.15)]">
