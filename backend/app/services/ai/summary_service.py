@@ -198,7 +198,7 @@ SUMMARY_SYSTEM_PROMPT = (
 )
 
 
-def _final_summary(source_content: str, system_prompt: str) -> str:
+def _final_summary(source_content: str, system_prompt: str, max_tokens: int = 900) -> str:
     user_prompt = f"""Generate a high-yield exam revision summary based on the following material:
 
 {source_content}
@@ -213,7 +213,7 @@ Exam Revision Summary:"""
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.4,
-            max_tokens=900 + REASONING_ALLOWANCE,
+            max_tokens=max_tokens + REASONING_ALLOWANCE,
         )
         return reply_text(response, "generating a summary")
     except AIGenerationError:
@@ -274,13 +274,15 @@ def format_pages(page_start: Optional[int], page_end: Optional[int]) -> Optional
     return f"pp. {page_start}–{page_end}"
 
 
-def replace_labels(text: str, citations: List[Citation]) -> str:
+def replace_labels(text: str, citations: List[Citation], join_plain=None) -> str:
     """Replace [S<i>] labels with each chunk's citation.
 
     Linked citations become Markdown links separated by spaces
     ("[02:05](url) [03:10](url)"); plain ones are joined in one bracket
-    ("(p. 3; pp. 7–8)"). Repeats within a run are dropped.
+    ("(p. 3; pp. 7–8)"), or by `join_plain(labels)` if given (merged
+    summaries group them by source). Repeats within a run are dropped.
     """
+    join_plain = join_plain or "; ".join
 
     def replace(match: re.Match) -> str:
         links, plain, seen = [], [], set()
@@ -294,7 +296,7 @@ def replace_labels(text: str, citations: List[Citation]) -> str:
                 links.append(f"[{label}]({url})")
             else:
                 plain.append(label)
-        parts = links + ([f"({'; '.join(plain)})"] if plain else [])
+        parts = links + ([f"({join_plain(plain)})"] if plain else [])
         return " ".join(parts)
 
     replaced = _CITATION_RE.sub(replace, text)
