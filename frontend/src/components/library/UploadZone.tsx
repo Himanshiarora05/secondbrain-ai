@@ -1,7 +1,15 @@
 import { useState, useRef } from 'react'
-import { Link } from 'react-router-dom'
-import { Plus, Video, UploadCloud, ArrowRight, Globe, CheckCircle2, XCircle, MinusCircle, X } from 'lucide-react'
-import { uploadPDF, uploadPPTX, uploadDOCX, uploadYouTube, uploadWebsite, DuplicateSourceError } from '../../api/client'
+import { Link, useNavigate } from 'react-router-dom'
+import { Plus, Video, UploadCloud, ArrowRight, Globe, CheckCircle2, XCircle, MinusCircle, X, Layers } from 'lucide-react'
+import {
+  uploadPDF,
+  uploadPPTX,
+  uploadDOCX,
+  uploadYouTube,
+  uploadWebsite,
+  createMergedSet,
+  DuplicateSourceError,
+} from '../../api/client'
 import type { UploadResult } from '../../types'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
 
@@ -33,6 +41,11 @@ function classifyFile(file: File): { kind: FileKind } | { error: string } {
 function uploadByKind(kind: FileKind, file: File): Promise<UploadResult> {
   return kind === 'pdf' ? uploadPDF(file) : kind === 'pptx' ? uploadPPTX(file) : uploadDOCX(file)
 }
+
+// A merged set's size limits (app/routes/merged_sets.py, which also caps the
+// total text at 80,000 characters and explains when it's over).
+const MIN_MERGED = 2
+const MAX_MERGED = 8
 
 // One file of a multi-file upload.
 interface BatchItem {
@@ -83,8 +96,31 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
   const [duplicate, setDuplicate] = useState<{ message: string; documentId: number } | null>(null)
   // Results of the last multi-file upload (null for single-file uploads).
   const [batch, setBatch] = useState<BatchItem[] | null>(null)
+  // Offer to merge the batch's documents: hidden after "Not now".
+  const [mergeDismissed, setMergeDismissed] = useState(false)
+  const [isMerging, setIsMerging] = useState(false)
+  const [mergeError, setMergeError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const isUploadingRef = useRef(false)
+  const navigate = useNavigate()
+
+  const uploadedIds = (batch ?? [])
+    .filter((it) => it.status === 'done' && it.documentId !== undefined)
+    .map((it) => it.documentId as number)
+
+  const handleMergeUploaded = async () => {
+    if (isMerging || uploadedIds.length < MIN_MERGED || uploadedIds.length > MAX_MERGED) return
+    setIsMerging(true)
+    setMergeError(null)
+    try {
+      // The existing merged-set API: same limits, and the same documents reopen an existing set.
+      const res = await createMergedSet(uploadedIds)
+      navigate(`/library/merged/${res.merged_set.id}/summary`, { state: { reopened: !res.created } })
+    } catch (err) {
+      setMergeError(err instanceof Error ? err.message : 'Failed to create merged set')
+      setIsMerging(false)
+    }
+  }
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault()
@@ -114,6 +150,8 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
 
   const handleFiles = async (files: File[]) => {
     setBatch(null)
+    setMergeDismissed(false)
+    setMergeError(null)
     if (files.length === 1) {
       await handleFileUpload(files[0])
     } else {
@@ -406,6 +444,42 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
                 </li>
               ))}
             </ul>
+
+            {uploadedIds.length >= MIN_MERGED && !mergeDismissed && (
+              <div className="mt-4 p-4 rounded-2xl bg-[rgba(167,139,250,0.1)] border border-[rgba(167,139,250,0.3)]" role="group" aria-label="Merge the uploaded documents">
+                <div className="flex items-start gap-3">
+                  <Layers size={17} className="flex-shrink-0 mt-0.5 text-[#C4B5FD]" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-white">
+                      Also create a merged set from these {uploadedIds.length} documents?
+                    </p>
+                    <p className="text-xs text-[#DDD6FE] mt-1">
+                      {uploadedIds.length > MAX_MERGED
+                        ? `A merged set can have at most ${MAX_MERGED} documents; pick them with Select in the Library.`
+                        : "You'll get one summary and flashcard deck from all of them; each document keeps its own."}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-2 mt-3">
+                  <button
+                    onClick={() => setMergeDismissed(true)}
+                    disabled={isMerging}
+                    className="px-3.5 py-2 rounded-xl text-xs font-medium text-[#A1A1AA] hover:text-white hover:bg-[rgba(255,255,255,0.06)] disabled:opacity-40 transition-all duration-200"
+                  >
+                    Not now
+                  </button>
+                  <button
+                    onClick={handleMergeUploaded}
+                    disabled={isMerging || uploadedIds.length > MAX_MERGED}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-[#8B5CF6] to-[#6D28D9] shadow-[0_0_20px_rgba(139,92,246,0.35)] hover:brightness-110 disabled:opacity-40 disabled:shadow-none disabled:cursor-not-allowed transition-all duration-200"
+                  >
+                    {isMerging ? <LoadingSpinner size={14} /> : <Layers size={14} />}
+                    <span>{isMerging ? 'Creating…' : 'Create merged set'}</span>
+                  </button>
+                </div>
+                {mergeError && <p role="alert" className="mt-2 text-xs text-[#F87171]">{mergeError}</p>}
+              </div>
+            )}
           </div>
         )}
         </>
