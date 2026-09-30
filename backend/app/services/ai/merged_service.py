@@ -21,6 +21,8 @@ from app.services.ai.summary_service import (
     Citation,
     _final_summary,
     _summarize_labelled_batch,
+    final_input_budget,
+    fit_notes,
     replace_labels,
 )
 
@@ -148,6 +150,8 @@ def generate_merged_summary(sources: List[MergedSource]) -> str:
             text = "\n\n".join(_summarize_labelled_batch("\n".join(batch)) for batch in batches)
         parts.append(f"{heading(s)}\n{text}")
 
+    # Many or long sources: combine the notes in rounds until the final call can take them.
+    parts = fit_notes(parts, final_input_budget(FINAL_MAX_TOKENS), cite=True)
     summary = _final_summary("\n\n".join(parts), MERGED_SYSTEM_PROMPT, max_tokens=FINAL_MAX_TOKENS)
     body = plain_inline_math(replace_labels(summary, citations, join_plain=join_by_source))
     return f"{sources_list(sources)}\n\n---\n\n{body}"

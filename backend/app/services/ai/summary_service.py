@@ -16,7 +16,7 @@ import openai
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from app.services.ai.model_limits import cap_tokens
+from app.services.ai.model_limits import cap_tokens, context_tokens
 from app.services.rag.rag_service import RAGService
 from app.services.youtube.youtube_service import YouTubeService
 
@@ -211,6 +211,104 @@ Summary Notes:"""
     )
 
 
+# ─── Notes too long for one final call: combine them in rounds ───
+#
+# The map step turns a long source into notes (about 1 call per 3,000
+# characters), and one final call writes the summary from all of them. For a
+# very long source or merged set the notes alone can exceed the model's
+# context (gpt-3.5-turbo: 16k tokens), so they're combined in rounds first:
+# grouped, each group condensed (keeping the [S12] labels), until they fit.
+
+FALLBACK_FINAL_INPUT_CHARS = 24_000   # when the model's context size isn't known
+MAX_FINAL_INPUT_CHARS = 200_000       # keeps the final call sensible on huge-context models
+CHARS_PER_TOKEN = 3                   # conservative for English study text
+PROMPT_OVERHEAD_TOKENS = 1_000        # system prompt, instructions, headings
+COMBINE_GROUP_CHARS = 12_000          # notes per condensing call
+COMBINE_MAX_TOKENS = 700
+MAX_COMBINE_ROUNDS = 4
+TOO_LONG_MESSAGE = "This material is too long to summarize in one go. Try fewer or smaller documents."
+
+
+def final_input_budget(final_max_tokens: int) -> int:
+    """How many characters of notes the final call can take for this model."""
+    context = context_tokens()
+    if not context:
+        return FALLBACK_FINAL_INPUT_CHARS
+    room = context - cap_tokens(final_max_tokens + REASONING_ALLOWANCE) - PROMPT_OVERHEAD_TOKENS
+    return max(4_000, min(room * CHARS_PER_TOKEN, MAX_FINAL_INPUT_CHARS))
+
+
+def _joined_len(parts: List[str]) -> int:
+    return sum(len(p) for p in parts) + 2 * max(len(parts) - 1, 0)
+
+
+def _split_long(text: str, size: int) -> List[str]:
+    """Split text into pieces of at most `size` characters, at line breaks where possible."""
+    if len(text) <= size:
+        return [text]
+    pieces, current = [], ""
+    for line in text.split("\n"):
+        while len(line) > size:  # a single very long line
+            if current:
+                pieces.append(current)
+                current = ""
+            pieces.append(line[:size])
+            line = line[size:]
+        if current and len(current) + 1 + len(line) > size:
+            pieces.append(current)
+            current = line
+        else:
+            current = f"{current}\n{line}" if current else line
+    if current:
+        pieces.append(current)
+    return pieces
+
+
+def _condense(notes: str, cite: bool) -> str:
+    system = "You are a concise academic tutor combining study notes into fewer, denser notes."
+    if cite:
+        system += " " + CITATION_RULE
+    user = (
+        "Combine the notes below into bullet points. Keep every key fact, definition and formula, "
+        "and merge points that say the same thing. "
+        + ("Keep the section labels ([S0], [S1], ...) of every point exactly as written. " if cite else "")
+        + "Keep any 'Source N' headings.\n\nNotes:\n" + notes + "\n\nCombined notes:"
+    )
+    return _complete(
+        "combining notes",
+        [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        temperature=0.3,
+        max_tokens=COMBINE_MAX_TOKENS + REASONING_ALLOWANCE,
+    )
+
+
+def fit_notes(parts: List[str], budget: int, cite: bool) -> List[str]:
+    """Combine `parts` in rounds until they fit in `budget` characters together.
+
+    Each round groups consecutive notes (never more than COMBINE_GROUP_CHARS
+    per call) and condenses each group, so the notes shrink several times per
+    round. Raises AIGenerationError(TOO_LONG_MESSAGE) if they still don't fit
+    after MAX_COMBINE_ROUNDS.
+    """
+    rounds = 0
+    while _joined_len(parts) > budget:
+        if rounds >= MAX_COMBINE_ROUNDS:
+            raise AIGenerationError(TOO_LONG_MESSAGE)
+        size = min(COMBINE_GROUP_CHARS, budget)
+        pieces = [piece for part in parts for piece in _split_long(part, size)]
+        groups, current = [], []
+        for piece in pieces:
+            if current and _joined_len(current + [piece]) > size:
+                groups.append(current)
+                current = []
+            current.append(piece)
+        if current:
+            groups.append(current)
+        parts = [_condense("\n\n".join(group), cite) for group in groups]
+        rounds += 1
+    return parts
+
+
 def generate_summary(document_text: str) -> str:
     """Generate an exam-revision summary of the document.
 
@@ -232,7 +330,7 @@ def generate_summary(document_text: str) -> str:
                 if chunk.strip():
                     chunk_summary = _summarize_chunk(chunk)
                     intermediate_summaries.append(f"### Section {i + 1}\n{chunk_summary}")
-            source_content = "\n\n".join(intermediate_summaries)
+            source_content = "\n\n".join(fit_notes(intermediate_summaries, final_input_budget(900), cite=False))
         else:
             source_content = cleaned_text
     else:
@@ -408,10 +506,11 @@ def generate_cited_summary(chunks: List[str], citations: List[Citation]) -> str:
             current_len += len(block) + 2
         if current:
             batches.append(current)
-        source_content = "\n\n".join(
+        notes = [
             f"### Part {i + 1}\n{_summarize_labelled_batch(chr(10).join(batch))}"
             for i, batch in enumerate(batches)
-        )
+        ]
+        source_content = "\n\n".join(fit_notes(notes, final_input_budget(900), cite=True))
 
     system_prompt = (
         SUMMARY_SYSTEM_PROMPT
