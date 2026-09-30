@@ -7,6 +7,8 @@ import { FlashcardPage } from './pages/FlashcardPage'
 import { FlashcardsHubPage } from './pages/FlashcardsHubPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { AuthPage } from './pages/AuthPage'
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
+import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { AuthProvider } from './context/AuthContext'
 import { DocumentProvider } from './context/DocumentContext'
 import { RequireAuth } from './components/auth/RequireAuth'
@@ -19,6 +21,8 @@ function App() {
         <Routes>
           <Route path="/login" element={<AuthPage mode="login" />} />
           <Route path="/signup" element={<AuthPage mode="signup" />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route
             path="/"
             element={

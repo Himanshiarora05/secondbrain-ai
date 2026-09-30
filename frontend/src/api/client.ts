@@ -425,3 +425,24 @@ export async function currentUser(): Promise<AuthUser | null> {
   if (response.status === 401) return null
   return authResult(response, 'Could not check your session')
 }
+
+// ─── Forgot password ───
+// All public (you're signed out when you forget your password).
+
+export async function requestPasswordReset(email: string): Promise<string> {
+  const response = await authRequest('password-reset/request', { email })
+  if (!response.ok) throw await detailError(response, 'Could not send the reset link')
+  return (await response.json()).message
+}
+
+export async function checkResetToken(token: string): Promise<boolean> {
+  const response = await authRequest('password-reset/check', { token })
+  if (!response.ok) throw await detailError(response, 'Could not check the reset link')
+  return (await response.json()).valid
+}
+
+export async function confirmPasswordReset(token: string, password: string): Promise<string> {
+  const response = await authRequest('password-reset/confirm', { token, password })
+  if (!response.ok) throw await detailError(response, 'Could not change the password')
+  return (await response.json()).message
+}
