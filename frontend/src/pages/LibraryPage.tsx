@@ -161,9 +161,9 @@ export function LibraryPage() {
     return () => window.removeEventListener('keydown', onKey)
   }, [selecting])
 
-  const handleUploadSuccess = (info?: { multiple: boolean }) => {
-    // After a multi-file upload the panel shows per-file results and the merge offer.
-    if (!info?.multiple) setShowUpload(false)
+  const handleUploadSuccess = (info?: { keepOpen: boolean }) => {
+    // Per-file results or a merge prompt stay on screen, so the panel stays open for them.
+    if (!info?.keepOpen) setShowUpload(false)
     fetchDocuments()
   }
 
@@ -236,7 +236,7 @@ export function LibraryPage() {
 
       {showUpload && (
         <div className="mb-10 animate-fade-in">
-          <UploadZone onUploadSuccess={handleUploadSuccess} />
+          <UploadZone onUploadSuccess={handleUploadSuccess} onMergedSetCreated={() => fetchMergedSets()} />
         </div>
       )}
 
