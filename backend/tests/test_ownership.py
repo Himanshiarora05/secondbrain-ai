@@ -40,7 +40,10 @@ from app.services import search_service
 
 PASSWORD = "correct horse battery"
 PUBLIC = {("POST", "/api/v1/auth/signup"), ("POST", "/api/v1/auth/login"), ("POST", "/api/v1/auth/logout"),
-          ("GET", "/api/v1/health"), ("GET", "/")}
+          ("GET", "/api/v1/health"), ("GET", "/"),
+          # Forgot password: used while signed out by definition (tests/test_password_reset.py).
+          ("POST", "/api/v1/auth/password-reset/request"), ("POST", "/api/v1/auth/password-reset/check"),
+          ("POST", "/api/v1/auth/password-reset/confirm")}
 VIDEO = "https://www.youtube.com/watch?v=abcdefghijk"
 
 
