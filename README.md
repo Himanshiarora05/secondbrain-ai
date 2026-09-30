@@ -4,6 +4,7 @@ A study notes summarizer. Add your study material, and SecondBrain turns it into
 
 ## What it does
 
+- **Accounts**: sign up with an email and password. Your documents, summaries, flashcards, merged sets and search results are private to your account; nobody else can see or open them, even with a direct link.
 - **Add sources**: PDF, PowerPoint (`.pptx`), Word (`.docx`), YouTube videos (with captions), and website links. You can pick or drop several files at once. Each becomes its own document, and afterwards the app offers to make a merged set from them straight away.
 - **Summaries**: exam-revision notes for each source.
   - YouTube summaries link every point to its moment in the video (`[02:05]`).
@@ -74,6 +75,8 @@ Then edit `backend/.env`:
 | `OPENROUTER_API_KEY` | Your OpenRouter key. **Required**: the backend won't start without it. |
 | `CHROMA_DIR` | Where the vector index is stored. The default `vector_db` is fine. |
 | `SQL_ECHO` | `true` logs every SQL statement (noisy; for debugging). Default `false`. |
+| `ALLOW_SIGNUP` | `false` closes sign-up once your account exists; existing accounts can still log in. Default `true`. |
+| `SESSION_COOKIE_SECURE` | `true` sends the login cookie over HTTPS only. Set it when the app is served over HTTPS; leave it off for `http://localhost`. Default `false`. |
 
 `.env` is in `.gitignore`. Never commit it.
 
@@ -124,7 +127,18 @@ Run it from `backend/`: uploaded files (`uploads/`) and the vector index (`vecto
 npm run dev
 ```
 
-Open the URL Vite prints (usually http://localhost:5173).
+Open the URL Vite prints (usually http://localhost:5173) and create your account on the sign-up page.
+
+## Upgrading from before accounts
+
+Documents added before accounts existed have no owner, so after upgrading your library looks empty; nothing is lost. Sign up in the app, then give them to your account. From `backend/`:
+
+```bash
+python scripts/assign_documents_to_user.py --email you@example.com           # preview: lists what would change
+python scripts/assign_documents_to_user.py --email you@example.com --apply   # assign them
+```
+
+This assigns every document and merged set that has no owner yet (with their summaries, flashcards and search entries) to that account. Documents that already belong to someone are never changed, so it's safe to run again.
 
 ## Page numbers for older PDFs
 
