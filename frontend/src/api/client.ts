@@ -1,6 +1,20 @@
-import type { SearchResult, DocumentItem, UploadResult, HealthStatus, Summary, FlashcardsResponse, MergedSet, CreateMergedSetResult, MergedSummary, MergedFlashcardsResponse } from '../types'
+import type { SearchResult, DocumentItem, UploadResult, HealthStatus, Summary, FlashcardsResponse, MergedSet, CreateMergedSetResult, MergedSummary, MergedFlashcardsResponse, AuthUser } from '../types'
 
 const API_BASE_URL = '/api'
+
+// Fired when the API answers 401 (no session, or it expired or was logged out
+// elsewhere). AuthContext listens and sends the user to the login page.
+export const AUTH_EXPIRED_EVENT = 'secondbrain:auth-expired'
+
+// Every API call goes through here. The session is an HttpOnly cookie, which
+// the browser sends by itself on these same-origin requests.
+async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  const response = await fetch(input, { credentials: 'same-origin', ...init })
+  if (response.status === 401) {
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
+  }
+  return response
+}
 
 // Generation calls the AI and takes several seconds. If the same generation is
 // requested again while it's running (React StrictMode runs page effects twice
@@ -19,7 +33,7 @@ function shareInFlight<T>(key: string, start: () => Promise<T>): Promise<T> {
 export async function searchSecondBrain(
   query: string
 ): Promise<SearchResult> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/v1/search?query=${encodeURIComponent(query)}`
   )
 
@@ -37,7 +51,7 @@ export async function uploadPDF(
   const formData = new FormData()
   formData.append('file', file)
 
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/v1/upload/pdf`,
     {
       method: 'POST',
@@ -59,7 +73,7 @@ export async function uploadPPTX(
   const formData = new FormData()
   formData.append('file', file)
 
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/v1/upload/pptx`,
     {
       method: 'POST',
@@ -81,7 +95,7 @@ export async function uploadDOCX(
   const formData = new FormData()
   formData.append('file', file)
 
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/v1/upload/docx`,
     {
       method: 'POST',
@@ -100,7 +114,7 @@ export async function uploadDOCX(
 export async function uploadYouTube(
   url: string
 ): Promise<UploadResult> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/v1/upload/youtube`,
     {
       method: 'POST',
@@ -122,7 +136,7 @@ export async function uploadYouTube(
 export async function uploadWebsite(
   url: string
 ): Promise<UploadResult> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/v1/upload/website`,
     {
       method: 'POST',
@@ -172,7 +186,7 @@ export async function getDocuments(): Promise<DocumentItem[]> {
     }
   }
 
-  const response = await fetch(`${API_BASE_URL}/v1/documents`)
+  const response = await apiFetch(`${API_BASE_URL}/v1/documents`)
 
   if (!response.ok) {
     throw new Error(`Failed to fetch documents: ${response.status}`)
@@ -182,7 +196,7 @@ export async function getDocuments(): Promise<DocumentItem[]> {
 }
 
 export async function deleteDocument(documentId: number): Promise<{ message: string; id: number }> {
-  const response = await fetch(`${API_BASE_URL}/v1/documents/${documentId}`, {
+  const response = await apiFetch(`${API_BASE_URL}/v1/documents/${documentId}`, {
     method: 'DELETE',
   })
 
@@ -195,7 +209,7 @@ export async function deleteDocument(documentId: number): Promise<{ message: str
 }
 
 export async function renameDocument(documentId: number, filename: string): Promise<{ id: number; filename: string }> {
-  const response = await fetch(`${API_BASE_URL}/v1/documents/${documentId}`, {
+  const response = await apiFetch(`${API_BASE_URL}/v1/documents/${documentId}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -212,7 +226,7 @@ export async function renameDocument(documentId: number, filename: string): Prom
 }
 
 export async function healthCheck(): Promise<HealthStatus> {
-  const response = await fetch(`${API_BASE_URL}/v1/health`)
+  const response = await apiFetch(`${API_BASE_URL}/v1/health`)
 
   if (!response.ok) {
     throw new Error(`Health check failed: ${response.status}`)
@@ -222,7 +236,7 @@ export async function healthCheck(): Promise<HealthStatus> {
 }
 
 export async function getSummary(documentId: number): Promise<Summary> {
-  const response = await fetch(`${API_BASE_URL}/v1/documents/${documentId}/summary`)
+  const response = await apiFetch(`${API_BASE_URL}/v1/documents/${documentId}/summary`)
 
   if (!response.ok) {
     if (response.status === 404) {
@@ -242,7 +256,7 @@ export function generateSummary(
 }
 
 async function requestSummary(documentId: number, regenerate: boolean): Promise<Summary> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/v1/documents/${documentId}/summary?regenerate=${regenerate}`,
     {
       method: 'POST',
@@ -258,7 +272,7 @@ async function requestSummary(documentId: number, regenerate: boolean): Promise<
 }
 
 export async function getFlashcards(documentId: number): Promise<FlashcardsResponse> {
-  const response = await fetch(`${API_BASE_URL}/v1/documents/${documentId}/flashcards`)
+  const response = await apiFetch(`${API_BASE_URL}/v1/documents/${documentId}/flashcards`)
 
   if (!response.ok) {
     throw new Error(`Failed to fetch flashcards: ${response.status}`)
@@ -275,7 +289,7 @@ export function generateFlashcards(
 }
 
 async function requestFlashcards(documentId: number, count: number): Promise<FlashcardsResponse> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/v1/documents/${documentId}/flashcards?count=${count}`,
     {
       method: 'POST',
@@ -297,19 +311,19 @@ async function detailError(response: Response, fallback: string): Promise<Error>
 }
 
 export async function listMergedSets(): Promise<MergedSet[]> {
-  const response = await fetch(`${API_BASE_URL}/v1/merged-sets`)
+  const response = await apiFetch(`${API_BASE_URL}/v1/merged-sets`)
   if (!response.ok) throw await detailError(response, 'Failed to load merged sets')
   return response.json()
 }
 
 export async function getMergedSet(setId: number): Promise<MergedSet> {
-  const response = await fetch(`${API_BASE_URL}/v1/merged-sets/${setId}`)
+  const response = await apiFetch(`${API_BASE_URL}/v1/merged-sets/${setId}`)
   if (!response.ok) throw await detailError(response, 'Failed to load merged set')
   return response.json()
 }
 
 export async function createMergedSet(documentIds: number[], name?: string): Promise<CreateMergedSetResult> {
-  const response = await fetch(`${API_BASE_URL}/v1/merged-sets`, {
+  const response = await apiFetch(`${API_BASE_URL}/v1/merged-sets`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -321,7 +335,7 @@ export async function createMergedSet(documentIds: number[], name?: string): Pro
 }
 
 export async function renameMergedSet(setId: number, name: string): Promise<MergedSet> {
-  const response = await fetch(`${API_BASE_URL}/v1/merged-sets/${setId}`, {
+  const response = await apiFetch(`${API_BASE_URL}/v1/merged-sets/${setId}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -333,13 +347,13 @@ export async function renameMergedSet(setId: number, name: string): Promise<Merg
 }
 
 export async function deleteMergedSet(setId: number): Promise<{ message: string; id: number }> {
-  const response = await fetch(`${API_BASE_URL}/v1/merged-sets/${setId}`, { method: 'DELETE' })
+  const response = await apiFetch(`${API_BASE_URL}/v1/merged-sets/${setId}`, { method: 'DELETE' })
   if (!response.ok) throw await detailError(response, 'Failed to delete merged set')
   return response.json()
 }
 
 export async function getMergedSummary(setId: number): Promise<MergedSummary> {
-  const response = await fetch(`${API_BASE_URL}/v1/merged-sets/${setId}/summary`)
+  const response = await apiFetch(`${API_BASE_URL}/v1/merged-sets/${setId}/summary`)
   if (!response.ok) {
     if (response.status === 404) {
       throw new Error('Summary not found')
@@ -351,7 +365,7 @@ export async function getMergedSummary(setId: number): Promise<MergedSummary> {
 
 export function generateMergedSummary(setId: number, regenerate = false): Promise<MergedSummary> {
   return shareInFlight(`merged-summary:${setId}:${regenerate}`, async () => {
-    const response = await fetch(`${API_BASE_URL}/v1/merged-sets/${setId}/summary?regenerate=${regenerate}`, {
+    const response = await apiFetch(`${API_BASE_URL}/v1/merged-sets/${setId}/summary?regenerate=${regenerate}`, {
       method: 'POST',
     })
     if (!response.ok) throw await detailError(response, 'Failed to generate merged summary')
@@ -360,17 +374,54 @@ export function generateMergedSummary(setId: number, regenerate = false): Promis
 }
 
 export async function getMergedFlashcards(setId: number): Promise<MergedFlashcardsResponse> {
-  const response = await fetch(`${API_BASE_URL}/v1/merged-sets/${setId}/flashcards`)
+  const response = await apiFetch(`${API_BASE_URL}/v1/merged-sets/${setId}/flashcards`)
   if (!response.ok) throw await detailError(response, 'Failed to fetch merged flashcards')
   return response.json()
 }
 
 export function generateMergedFlashcards(setId: number, count = 10): Promise<MergedFlashcardsResponse> {
   return shareInFlight(`merged-flashcards:${setId}:${count}`, async () => {
-    const response = await fetch(`${API_BASE_URL}/v1/merged-sets/${setId}/flashcards?count=${count}`, {
+    const response = await apiFetch(`${API_BASE_URL}/v1/merged-sets/${setId}/flashcards?count=${count}`, {
       method: 'POST',
     })
     if (!response.ok) throw await detailError(response, 'Failed to generate merged flashcards')
     return response.json()
   })
+}
+
+// ─── Accounts ───
+// These use fetch directly: a 401 here (wrong password, not signed in yet) is
+// an answer to show, not an expired session.
+
+async function authRequest(path: string, body?: unknown): Promise<Response> {
+  return fetch(`${API_BASE_URL}/v1/auth/${path}`, {
+    method: body === undefined ? 'GET' : 'POST',
+    credentials: 'same-origin',
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+}
+
+async function authResult(response: Response, fallback: string): Promise<AuthUser> {
+  if (!response.ok) throw await detailError(response, fallback)
+  return (await response.json()).user
+}
+
+export async function signUp(email: string, password: string): Promise<AuthUser> {
+  return authResult(await authRequest('signup', { email, password }), 'Sign-up failed')
+}
+
+export async function logIn(email: string, password: string): Promise<AuthUser> {
+  return authResult(await authRequest('login', { email, password }), 'Login failed')
+}
+
+export async function logOut(): Promise<void> {
+  await authRequest('logout', {})
+}
+
+// The signed-in user, or null when there's no valid session.
+export async function currentUser(): Promise<AuthUser | null> {
+  const response = await authRequest('me')
+  if (response.status === 401) return null
+  return authResult(response, 'Could not check your session')
 }

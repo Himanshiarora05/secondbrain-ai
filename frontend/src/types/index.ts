@@ -133,3 +133,10 @@ export interface MergedFlashcardsResponse {
   flashcards: MergedFlashcard[]
   stale: boolean
 }
+
+// ─── Accounts ───
+
+export interface AuthUser {
+  id: number
+  email: string
+}

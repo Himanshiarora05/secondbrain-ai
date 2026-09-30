@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Server, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
+import { Server, CheckCircle2, AlertCircle, Loader2, UserRound, LogOut } from 'lucide-react'
 import { healthCheck } from '../api/client'
+import { useAuth } from '../context/AuthContext'
 import type { HealthStatus } from '../types'
 
 export function SettingsPage() {
+  const { user, logout } = useAuth()
   const [health, setHealth] = useState<HealthStatus | null>(null)
   const [healthLoading, setHealthLoading] = useState(true)
   const [healthError, setHealthError] = useState<string | null>(null)
@@ -34,6 +36,28 @@ export function SettingsPage() {
       </div>
 
       <div className="flex flex-col gap-6 max-w-3xl">
+
+        {/* Account Card (also the way to log out on phones, where the sidebar is hidden) */}
+        {user && (
+          <div className="bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-2xl p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-primary)] flex items-center justify-center text-[var(--accent-primary)] flex-shrink-0">
+                <UserRound size={20} />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-base font-semibold text-white">Account</h2>
+                <p className="text-xs text-[var(--text-secondary)] truncate">Signed in as {user.email}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => logout()}
+              className="self-start sm:self-auto flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-[#F87171] border border-[rgba(239,68,68,0.3)] bg-[rgba(239,68,68,0.08)] hover:bg-[rgba(239,68,68,0.15)] transition-all duration-200"
+            >
+              <LogOut size={14} />
+              <span>Log out</span>
+            </button>
+          </div>
+        )}
 
         {/* About Card */}
         <div className="bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-2xl p-6 shadow-sm">
