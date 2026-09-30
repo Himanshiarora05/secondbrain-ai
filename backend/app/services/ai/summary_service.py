@@ -429,8 +429,12 @@ def append_source_link(summary: str, title: str, url: str) -> str:
 # One match = a run of labels like "[S3]", "[S3, S7]" or "[S3][S7]", so the
 # citations for a run are joined (and de-duplicated) together. Some models
 # Markdown-escape the brackets ("\[S3\]"); the backslashes are matched too so
-# they're replaced along with the label.
-_LABEL = r"\\?\[\s*S\d+(?:\s*,\s*S\d+)*\s*\\?\]"
+# they're replaced along with the label. Some write ranges ("[S0-S3]", any
+# dash, "S" optional after it), which stand for every label in between.
+_DASH = "-\u2010\u2011\u2012\u2013\u2014\u2212"
+_ITEM = rf"S\d+(?:\s*[{_DASH}]\s*S?\d+)?"
+_LABEL = rf"\\?\[\s*{_ITEM}(?:\s*,\s*{_ITEM})*\s*\\?\]"
+_RANGE_RE = re.compile(rf"S(\d+)(?:\s*[{_DASH}]\s*S?(\d+))?")
 _CITATION_RE = re.compile(rf"{_LABEL}(?:[ \t]*{_LABEL})*")
 # A run the model put in its own parentheses: "([S3])" would become "((p. 12))".
 _WRAPPED_CITATION_RE = re.compile(rf"\(\s*({_LABEL}(?:[ \t]*{_LABEL})*)\s*\)")
@@ -439,8 +443,9 @@ CITATION_RULE = (
     "The material is split into sections labelled [S0], [S1], [S2], ... "
     "End EVERY bullet point with the label(s) of the section(s) it came from, "
     "exactly as written, e.g. '- Photosynthesis happens in chloroplasts [S3]' "
-    "or '... [S3][S7]'. Never write times, timestamps, page numbers or slide numbers yourself; "
-    "use only the labels."
+    "or '... [S3][S7]'. Write every label in full ('[S3][S4][S5]'), never a range like '[S3-S5]'. "
+    "Never write times, timestamps, page numbers or slide numbers yourself; use only the labels. "
+    "The labels are only for citing: never mention them (or S0, S1, ...) as words in a sentence."
 )
 
 # (label, url) for a chunk: url is None for citations that aren't links (pages, slides).
@@ -473,9 +478,18 @@ def replace_labels(text: str, citations: List[Citation], join_plain=None) -> str
     """
     join_plain = join_plain or "; ".join
 
+    def indexes(run: str):
+        # "S3" -> 3; a range "S0-S3" -> 0, 1, 2, 3 (reversed ranges count too;
+        # indexes past the last chunk are dropped below, so a range can't run away).
+        for m in _RANGE_RE.finditer(run):
+            start, end = int(m.group(1)), int(m.group(2) or m.group(1))
+            if start > end:
+                start, end = end, start
+            yield from range(start, min(end, len(citations) - 1) + 1) if start < len(citations) else ()
+
     def render(run: str):
         links, plain, seen = [], [], set()
-        for idx in (int(n) for n in re.findall(r"S(\d+)", run)):
+        for idx in indexes(run):
             citation = citations[idx] if idx < len(citations) else None
             if citation is None or citation in seen:
                 continue
