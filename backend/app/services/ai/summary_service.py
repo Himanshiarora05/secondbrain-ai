@@ -377,7 +377,17 @@ def generate_summary(document_text: str) -> str:
     else:
         source_content = cleaned_text
 
-    return _final_summary(source_content, SUMMARY_SYSTEM_PROMPT)
+    return plain_inline_math(_final_summary(source_content, SUMMARY_SYSTEM_PROMPT))
+
+
+# Inline LaTeX "\(|V|\)": the page doesn't render maths, and Markdown drops
+# the backslashes, leaving "(|V|)". The prompts ask for plain formulas, but
+# models don't always comply, so the delimiters are removed here.
+_INLINE_MATH_RE = re.compile(r"\\\((.+?)\\\)")
+
+
+def plain_inline_math(text: str) -> str:
+    return _INLINE_MATH_RE.sub(lambda m: m.group(1).strip(), text)
 
 
 SUMMARY_SYSTEM_PROMPT = (
@@ -385,9 +395,13 @@ SUMMARY_SYSTEM_PROMPT = (
     "Guidelines:\n"
     "1. Structure with clear Markdown headings and bullet points.\n"
     "2. Prominently highlight key definitions and essential formulas/equations.\n"
-    "3. Explicitly call out any gaps or incomplete explanations found in the source text (e.g., 'Note: this document does not explain X in depth').\n"
+    "3. Where the material introduces something but explains it incompletely (e.g. names a term without "
+    "defining it, or states a result without saying when it applies), note it briefly (e.g. 'Note: the "
+    "slides name X but don't explain it'). Only flag what the material itself mentions; never list topics "
+    "it doesn't cover.\n"
     "4. Keep the entire summary concise and strictly under 600 words.\n"
-    "5. Output clean Markdown only."
+    "5. Output clean Markdown only. Write formulas in plain text or Unicode (e.g. x₁ + x₂, |V|, v = (x, y)), "
+    "not LaTeX."
 )
 
 
@@ -573,7 +587,7 @@ def generate_cited_summary(chunks: List[str], citations: List[Citation]) -> str:
         + " Keep the labels from the material when you combine or rephrase points."
     )
     summary = _final_summary(source_content, system_prompt)
-    return replace_labels(summary, citations)
+    return plain_inline_math(replace_labels(summary, citations))
 
 
 def generate_youtube_summary(chunks: List[Tuple[int, str]], source_url: str) -> str:
