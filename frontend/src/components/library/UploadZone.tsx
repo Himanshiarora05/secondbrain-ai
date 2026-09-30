@@ -8,15 +8,19 @@ import {
   uploadYouTube,
   uploadWebsite,
   createMergedSet,
+  getDocuments,
   DuplicateSourceError,
 } from '../../api/client'
-import type { UploadResult } from '../../types'
+import type { DocumentItem, MergedSet, UploadResult } from '../../types'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
+import { MergePrompt } from './MergePrompt'
 
 interface UploadZoneProps {
-  // `multiple` is true after a multi-file upload, whose results (and merge
-  // offer) stay on screen, so the caller shouldn't close the upload area.
-  onUploadSuccess: (info?: { multiple: boolean }) => void
+  // `keepOpen` is true when results or a merge prompt stay on screen after the
+  // upload, so the caller shouldn't close the upload area.
+  onUploadSuccess: (info?: { keepOpen: boolean }) => void
+  // A merged set was created from the merge prompt (the Library refreshes its sets).
+  onMergedSetCreated?: (set: MergedSet) => void
 }
 
 // Same wording as the backend (upload.py); python-pptx/python-docx can't read the old binary formats.
@@ -85,7 +89,7 @@ function validateWebsiteUrl(raw: string): { url: string } | { error: string } {
   return { url: parsed.href }
 }
 
-export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
+export function UploadZone({ onUploadSuccess, onMergedSetCreated }: UploadZoneProps) {
   const [activeTab, setActiveTab] = useState<'file' | 'youtube' | 'website'>('file')
   const [isDragging, setIsDragging] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
@@ -100,6 +104,8 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
   const [mergeDismissed, setMergeDismissed] = useState(false)
   const [isMerging, setIsMerging] = useState(false)
   const [mergeError, setMergeError] = useState<string | null>(null)
+  // The merge prompt after a single upload: the new document and the library it can be merged with.
+  const [mergeOffer, setMergeOffer] = useState<{ newIds: number[]; documents: DocumentItem[] } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
   const isUploadingRef = useRef(false)
@@ -127,6 +133,20 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
     } catch (err) {
       setMergeError(err instanceof Error ? err.message : 'Failed to create merged set')
       setIsMerging(false)
+    }
+  }
+
+  // After a single upload: offer to merge the new document, if there's anything
+  // to merge it with. Returns whether the prompt is shown.
+  const offerMerge = async (documentId?: number): Promise<boolean> => {
+    if (documentId === undefined) return false
+    try {
+      const documents = await getDocuments()
+      if (!documents.some((d) => d.id === documentId) || !documents.some((d) => d.id !== documentId)) return false
+      setMergeOffer({ newIds: [documentId], documents })
+      return true
+    } catch {
+      return false // the upload itself worked; there's just no prompt
     }
   }
 
@@ -158,6 +178,7 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
 
   const handleFiles = async (files: File[]) => {
     setBatch(null)
+    setMergeOffer(null)
     setMergeDismissed(false)
     setMergeError(null)
     if (files.length === 1) {
@@ -200,7 +221,7 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
           update(i, { status: 'failed', message: err instanceof Error ? err.message : 'Upload failed' })
         }
       }
-      if (items.some((it) => it.status === 'done')) onUploadSuccess({ multiple: true })
+      if (items.some((it) => it.status === 'done')) onUploadSuccess({ keepOpen: true })
     } finally {
       isUploadingRef.current = false
       setIsUploading(false)
@@ -222,8 +243,8 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
     setIsUploading(true)
 
     try {
-      await uploadByKind(kind.kind, file)
-      onUploadSuccess()
+      const res = await uploadByKind(kind.kind, file)
+      onUploadSuccess({ keepOpen: await offerMerge(res.document_id) })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed')
     } finally {
@@ -244,12 +265,13 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
 
     isUploadingRef.current = true
     setError(null)
+    setMergeOffer(null)
     setIsUploading(true)
 
     try {
-      await uploadYouTube(youtubeUrl.trim())
+      const res = await uploadYouTube(youtubeUrl.trim())
       setYoutubeUrl('')
-      onUploadSuccess()
+      onUploadSuccess({ keepOpen: await offerMerge(res.document_id) })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to import YouTube video')
       setDuplicate(err instanceof DuplicateSourceError ? { message: err.message, documentId: err.documentId } : null)
@@ -271,12 +293,13 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
 
     isUploadingRef.current = true
     setError(null)
+    setMergeOffer(null)
     setIsUploading(true)
 
     try {
-      await uploadWebsite(result.url)
+      const res = await uploadWebsite(result.url)
       setWebsiteUrl('')
-      onUploadSuccess()
+      onUploadSuccess({ keepOpen: await offerMerge(res.document_id) })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to import web page')
       setDuplicate(err instanceof DuplicateSourceError ? { message: err.message, documentId: err.documentId } : null)
@@ -579,6 +602,17 @@ export function UploadZone({ onUploadSuccess }: UploadZoneProps) {
             </button>
           </div>
         </form>
+      )}
+
+      {mergeOffer && !isUploading && (
+        <div className="max-w-2xl mx-auto">
+          <MergePrompt
+            newIds={mergeOffer.newIds}
+            documents={mergeOffer.documents}
+            onDismiss={() => setMergeOffer(null)}
+            onCreated={onMergedSetCreated}
+          />
+        </div>
       )}
 
       {error && (
