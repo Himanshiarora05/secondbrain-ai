@@ -32,6 +32,12 @@ def on_startup():
     # Previously nothing called Base.metadata.create_all() anywhere in the
     # app - it only worked if the tables had been created some other way.
     init_db()
+    # The model's context and output limits, so no AI call asks for more than it allows.
+    from app.services.ai.model_limits import load_model_limits
+    from app.services.ai.summary_service import MODEL_NAME
+    limits = load_model_limits(MODEL_NAME)
+    print(f"Model {MODEL_NAME}: context {limits['context'] or 'unknown'} tokens, "
+          f"max output {limits['max_output'] or 'unknown'} tokens")
 
 
 @app.get("/")

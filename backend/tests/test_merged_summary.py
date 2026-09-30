@@ -33,6 +33,7 @@ from app.routes import merged_sets as ms
 from app.routes.merged_sets import CreateMergedSetRequest
 from app.services.ai import merged_service as mg
 from app.services.ai import summary_service as ss
+from app.services.ai.model_limits import cap_tokens
 from app.services.ai.merged_service import MergedSource
 
 VIDEO = "https://www.youtube.com/watch?v=abcdefghijk"
@@ -142,7 +143,7 @@ def test_small_set_is_one_call_with_numbered_citations():
     assert "organised by topic" in system and "[S3]" in system, "merged prompt with the citation rule"
     assert "'Source 1'" in system and "never write the [S0]" in system, "sources are named by number, not label"
     assert "not LaTeX" in system
-    assert max_tokens == mg.FINAL_MAX_TOKENS + ss.REASONING_ALLOWANCE
+    assert max_tokens == cap_tokens(mg.FINAL_MAX_TOKENS + ss.REASONING_ALLOWANCE), "capped to the model's output limit"
     for heading in ("## Source 1: Graph_PPT.pdf (PDF)", "## Source 3: YouTube: abcdefghijk (YouTube video)",
                     "## Source 5: notes.docx (Word document)"):
         assert heading in user, heading

@@ -30,6 +30,7 @@ from types import SimpleNamespace
 TEST_USER = SimpleNamespace(id=1)
 
 from app.services.ai import summary_service as ss
+from app.services.ai.model_limits import cap_tokens
 from app.services.ai import flashcard_service as fs
 from app.services import search_service
 from app.routes import search as search_route
@@ -79,12 +80,12 @@ def test_calls_leave_room_for_reasoning():
         ss.generate_summary("Sentence about cells. " * 400)  # map + reduce
         ss.generate_cited_summary(["Mitochondria make ATP. " * 200] * 3, PAGES)  # labelled map + final
     caps = {c.kwargs["max_tokens"] for c in client.chat.completions.create.call_args_list}
-    assert caps == {400 + ss.REASONING_ALLOWANCE, 900 + ss.REASONING_ALLOWANCE}, caps
+    assert caps == {cap_tokens(400 + ss.REASONING_ALLOWANCE), cap_tokens(900 + ss.REASONING_ALLOWANCE)}, caps
 
     client = replying_client('[{"question": "Q?", "answer": "A", "source": "S0"}]')
     with patch.object(fs, "client", client):
         fs.generate_flashcards("Text.", count=1)
-    assert client.chat.completions.create.call_args.kwargs["max_tokens"] == 1200 + ss.REASONING_ALLOWANCE
+    assert client.chat.completions.create.call_args.kwargs["max_tokens"] == cap_tokens(1200 + ss.REASONING_ALLOWANCE)
 
 
 def test_cut_off_reply_is_logged_but_kept():
