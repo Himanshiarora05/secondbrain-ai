@@ -1,9 +1,11 @@
 import { NavLink } from 'react-router-dom'
-import { Home, Library, Layers, Settings, FileText } from 'lucide-react'
+import { Home, Library, Layers, Settings, FileText, LogOut } from 'lucide-react'
+import { useAuth } from '../../context/AuthContext'
 import { useDocuments } from '../../context/DocumentContext'
 
 export function Sidebar() {
   const { documents } = useDocuments()
+  const { user, logout } = useAuth()
   const recentDocs = [...documents].sort((a, b) => b.id - a.id).slice(0, 4)
 
   const navLinkClass = ({ isActive }: { isActive: boolean }) =>
@@ -67,12 +69,27 @@ export function Sidebar() {
         )}
       </nav>
       
-      {/* Settings Footer */}
-      <div className="p-2.5 mt-auto border-t border-[#1C2233]">
+      {/* Account & Settings Footer */}
+      <div className="p-2.5 mt-auto border-t border-[#1C2233] flex flex-col gap-1">
         <NavLink to="/settings" className={navLinkClass}>
           <Settings size={16} />
           <span>Settings</span>
         </NavLink>
+        {user && (
+          <div className="flex items-center gap-2 px-3 pt-2 mt-1 border-t border-[#1C2233]/60">
+            <span className="flex-1 min-w-0 truncate text-[11px] text-[#8B93A7]" title={`Signed in as ${user.email}`}>
+              {user.email}
+            </span>
+            <button
+              onClick={() => logout()}
+              className="flex-shrink-0 p-1.5 -mr-1.5 rounded-lg text-[#8B93A7] hover:text-[#F87171] hover:bg-[#12161F] transition-colors"
+              title="Log out"
+              aria-label="Log out"
+            >
+              <LogOut size={14} />
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   )
