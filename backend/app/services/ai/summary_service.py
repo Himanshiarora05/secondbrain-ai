@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Tuple
 import httpx
 import openai
@@ -211,6 +212,46 @@ Summary Notes:"""
     )
 
 
+# ─── Several AI calls at once ───
+#
+# A long source means one map call per ~3,000 characters (a 220,000-character
+# textbook is ~75 calls); one after another that's several minutes. They're
+# independent, so up to SUMMARY_PARALLEL_CALLS run at the same time. Each call
+# keeps its own retries; a rate limit that survives them fails the summary as
+# before.
+
+DEFAULT_PARALLEL_CALLS = 4
+MAX_PARALLEL_CALLS = 16
+
+
+def parallel_calls() -> int:
+    try:
+        value = int(os.getenv("SUMMARY_PARALLEL_CALLS", "").strip())
+    except ValueError:
+        return DEFAULT_PARALLEL_CALLS
+    return max(1, min(value, MAX_PARALLEL_CALLS))
+
+
+def run_calls(fn, items) -> list:
+    """fn(item) for every item, up to parallel_calls() at a time; results in the items' order.
+
+    The first failure cancels the calls that haven't started and is raised
+    (calls already running finish first, and their results are dropped).
+    """
+    items = list(items)
+    workers = min(parallel_calls(), len(items))
+    if workers <= 1:
+        return [fn(item) for item in items]
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(fn, item) for item in items]
+        try:
+            return [future.result() for future in futures]
+        except BaseException:
+            for future in futures:
+                future.cancel()
+            raise
+
+
 # ─── Notes too long for one final call: combine them in rounds ───
 #
 # The map step turns a long source into notes (about 1 call per 3,000
@@ -304,7 +345,7 @@ def fit_notes(parts: List[str], budget: int, cite: bool) -> List[str]:
             current.append(piece)
         if current:
             groups.append(current)
-        parts = [_condense("\n\n".join(group), cite) for group in groups]
+        parts = run_calls(lambda group: _condense("\n\n".join(group), cite), groups)
         rounds += 1
     return parts
 
@@ -325,11 +366,11 @@ def generate_summary(document_text: str) -> str:
     if len(cleaned_text) > MAP_REDUCE_THRESHOLD:
         chunks = RAGService.chunk_text(cleaned_text, chunk_size=3000, overlap=300)
         if len(chunks) > 1:
-            intermediate_summaries = []
-            for i, chunk in enumerate(chunks):
-                if chunk.strip():
-                    chunk_summary = _summarize_chunk(chunk)
-                    intermediate_summaries.append(f"### Section {i + 1}\n{chunk_summary}")
+            chunks = [chunk for chunk in chunks if chunk.strip()]
+            intermediate_summaries = [
+                f"### Section {i + 1}\n{chunk_summary}"
+                for i, chunk_summary in enumerate(run_calls(_summarize_chunk, chunks))
+            ]
             source_content = "\n\n".join(fit_notes(intermediate_summaries, final_input_budget(900), cite=False))
         else:
             source_content = cleaned_text
@@ -507,8 +548,8 @@ def generate_cited_summary(chunks: List[str], citations: List[Citation]) -> str:
         if current:
             batches.append(current)
         notes = [
-            f"### Part {i + 1}\n{_summarize_labelled_batch(chr(10).join(batch))}"
-            for i, batch in enumerate(batches)
+            f"### Part {i + 1}\n{note}"
+            for i, note in enumerate(run_calls(lambda batch: _summarize_labelled_batch("\n".join(batch)), batches))
         ]
         source_content = "\n\n".join(fit_notes(notes, final_input_budget(900), cite=True))
 
