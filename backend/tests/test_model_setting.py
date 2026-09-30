@@ -44,7 +44,7 @@ def test_default_model_when_unset_or_blank():
         if value is not None:
             env["OPENROUTER_MODEL"] = value
         with patch.dict(os.environ, env, clear=True):
-            assert ss.configured_model() == "openai/gpt-3.5-turbo", repr(value)
+            assert ss.configured_model() == "openai/gpt-4o-mini", repr(value)
 
 
 def test_setting_overrides_and_is_trimmed():

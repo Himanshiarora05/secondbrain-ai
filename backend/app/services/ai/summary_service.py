@@ -89,7 +89,9 @@ client = OpenAI(
     timeout=30,
 )
 
-DEFAULT_MODEL = "openai/gpt-3.5-turbo"
+# gpt-4o-mini: cheaper than gpt-3.5-turbo ($0.15 / $0.60 per million tokens vs $0.50 / $1.50),
+# a 128k-token context (vs 16k) and up to 16k output tokens (vs 4k).
+DEFAULT_MODEL = "openai/gpt-4o-mini"
 
 
 def configured_model() -> str:
