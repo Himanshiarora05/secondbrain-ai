@@ -23,6 +23,7 @@ from app.services.ai.summary_service import (
     _summarize_labelled_batch,
     final_input_budget,
     fit_notes,
+    plain_inline_math,
     replace_labels,
     run_calls,
 )
@@ -166,16 +167,6 @@ def generate_merged_summary(sources: List[MergedSource]) -> str:
     summary = _final_summary("\n\n".join(parts), MERGED_SYSTEM_PROMPT, max_tokens=FINAL_MAX_TOKENS)
     body = plain_inline_math(replace_labels(summary, citations, join_plain=join_by_source))
     return f"{sources_list(sources)}\n\n---\n\n{body}"
-
-
-# Inline LaTeX "\(|V|\)": the page doesn't render maths, and Markdown drops
-# the backslashes, leaving "(|V|)". The prompt asks for plain formulas, but
-# models don't always comply, so the delimiters are removed here.
-_INLINE_MATH_RE = re.compile(r"\\\((.+?)\\\)")
-
-
-def plain_inline_math(text: str) -> str:
-    return _INLINE_MATH_RE.sub(lambda m: m.group(1).strip(), text)
 
 
 # ─── Merged flashcards ───
