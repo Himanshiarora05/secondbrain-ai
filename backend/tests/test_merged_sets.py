@@ -108,12 +108,31 @@ def test_selection_rules():
 
 def test_character_limit():
     db = fresh_db()
-    a, b = add_doc(db, "big.pdf", chars=60_000), add_doc(db, "other.pdf", chars=20_000)
-    assert create(db, [a, b])["created"] is True, "exactly 80,000 is allowed"
+    a, b = add_doc(db, "big.pdf", chars=250_000), add_doc(db, "other.pdf", chars=50_000)
+    assert create(db, [a, b])["created"] is True, "exactly 300,000 (the default) is allowed"
     c = add_doc(db, "one-more.pdf", chars=1)
     res = create(db, [a, b, c])
     assert isinstance(res, HTTPException) and res.status_code == 400, res
-    assert "80,001 characters" in res.detail and "at most 80,000" in res.detail, res.detail
+    assert "300,001 characters" in res.detail and "at most 300,000" in res.detail, res.detail
+
+
+def test_character_limit_is_configurable():
+    db = fresh_db()
+    a, b = add_doc(db, "a.pdf", chars=60_000), add_doc(db, "b.pdf", chars=20_001)
+    os.environ["MERGED_MAX_CHARS"] = "80,000"
+    try:
+        res = create(db, [a, b])
+        assert isinstance(res, HTTPException) and "at most 80,000" in res.detail, res
+        os.environ["MERGED_MAX_CHARS"] = "500_000"
+        assert create(db, [a, b])["created"] is True
+    finally:
+        del os.environ["MERGED_MAX_CHARS"]
+    for bad in ("", "lots", "0", "-5"):
+        os.environ["MERGED_MAX_CHARS"] = bad
+        try:
+            assert ms.max_total_chars() == ms.DEFAULT_MAX_TOTAL_CHARS == 300_000, bad
+        finally:
+            del os.environ["MERGED_MAX_CHARS"]
 
 
 def test_same_documents_reopen_the_existing_set():

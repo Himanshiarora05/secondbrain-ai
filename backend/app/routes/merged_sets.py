@@ -6,6 +6,7 @@ the documents of an existing set returns that set instead of a copy.
 """
 
 import json
+import os
 from datetime import datetime
 from typing import List, Optional
 
@@ -29,9 +30,20 @@ router = APIRouter(prefix="/api/v1/merged-sets", tags=["Merged sets"])
 
 MIN_DOCUMENTS = 2
 MAX_DOCUMENTS = 8
-# Total extracted text across the set. One merged summary of long documents
-# takes many AI calls (~1 per 3,000 characters), and any failure fails it all.
-MAX_TOTAL_CHARS = 80_000
+# Total extracted text across the set (MERGED_MAX_CHARS in .env). A merged
+# summary takes about one AI call per 3,000 characters (run a few at a time),
+# so this bounds how long it takes and what it costs; the notes are combined
+# in rounds when they're too long for one final call, so the model's context
+# size doesn't limit it.
+DEFAULT_MAX_TOTAL_CHARS = 300_000
+
+
+def max_total_chars() -> int:
+    try:
+        value = int(os.getenv("MERGED_MAX_CHARS", "").replace("_", "").replace(",", "").strip())
+    except ValueError:
+        return DEFAULT_MAX_TOTAL_CHARS
+    return value if value > 0 else DEFAULT_MAX_TOTAL_CHARS
 
 # Any fixed number: serialises set creation so a double click can't create two copies.
 _CREATE_LOCK_KEY = 7_340_001
@@ -178,11 +190,12 @@ def create_merged_set(body: CreateMergedSetRequest, db: Session = Depends(get_db
     if missing:
         raise HTTPException(status_code=404, detail=f"Document not found: {', '.join(map(str, missing))}")
     total_chars = sum(docs[i].chars for i in document_ids)
-    if total_chars > MAX_TOTAL_CHARS:
+    limit = max_total_chars()
+    if total_chars > limit:
         raise HTTPException(
             status_code=400,
             detail=(f"These documents have {total_chars:,} characters of text together; a merged set can have "
-                    f"at most {MAX_TOTAL_CHARS:,}. Pick fewer or smaller documents."),
+                    f"at most {limit:,}. Pick fewer or smaller documents."),
         )
 
     _lock_creation(db)

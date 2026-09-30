@@ -43,7 +43,7 @@ function uploadByKind(kind: FileKind, file: File): Promise<UploadResult> {
 }
 
 // A merged set's size limits (app/routes/merged_sets.py, which also caps the
-// total text at 80,000 characters and explains when it's over).
+// total text (MERGED_MAX_CHARS, default 300,000 characters) and explains when it's over).
 const MIN_MERGED = 2
 const MAX_MERGED = 8
 

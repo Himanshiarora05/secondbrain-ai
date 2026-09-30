@@ -32,7 +32,7 @@ import {
 } from 'lucide-react'
 
 // Same limits as the backend (app/routes/merged_sets.py), which also caps the
-// total text at 80,000 characters and explains when a selection is over it.
+// total text (MERGED_MAX_CHARS, default 300,000 characters) and explains when a selection is over it.
 const MIN_MERGED = 2
 const MAX_MERGED = 8
 
