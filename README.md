@@ -4,7 +4,7 @@ A study notes summarizer. Add your study material, and SecondBrain turns it into
 
 ## What it does
 
-- **Accounts**: sign up with an email and password. Your documents, summaries, flashcards, merged sets and search results are private to your account; nobody else can see or open them, even with a direct link.
+- **Accounts**: sign up with an email and password. Your documents, summaries, flashcards, merged sets and search results are private to your account; nobody else can see or open them, even with a direct link. Forgot your password? **Forgot password?** on the login page emails you a link to set a new one (it works once, expires after 30 minutes, and logs you out everywhere). See [Password reset emails](#password-reset-emails).
 - **Add sources**: PDF, PowerPoint (`.pptx`), Word (`.docx`), YouTube videos (with captions), and website links. You can pick or drop several files at once. Each becomes its own document, and afterwards the app offers to make a merged set from them straight away.
 - **Summaries**: exam-revision notes for each source.
   - YouTube summaries link every point to its moment in the video (`[02:05]`).
@@ -77,6 +77,10 @@ Then edit `backend/.env`:
 | `SQL_ECHO` | `true` logs every SQL statement (noisy; for debugging). Default `false`. |
 | `ALLOW_SIGNUP` | `false` closes sign-up once your account exists; existing accounts can still log in. Default `true`. |
 | `SESSION_COOKIE_SECURE` | `true` sends the login cookie over HTTPS only. Set it when the app is served over HTTPS; leave it off for `http://localhost`. Default `false`. |
+| `BREVO_API_KEY`, `EMAIL_FROM` | Your Brevo API key and verified sender address, for password reset emails. Optional: without them, reset links are written to the backend log instead. See [Password reset emails](#password-reset-emails). |
+| `EMAIL_FROM_NAME` | The sender name on emails. Default `SecondBrain`. |
+| `APP_BASE_URL` | Where the frontend runs, for the link in reset emails. Default `http://localhost:5173`. |
+| `PASSWORD_RESET_MINUTES` | How long a reset link works. Default `30`. |
 
 `.env` is in `.gitignore`. Never commit it.
 
@@ -128,6 +132,17 @@ npm run dev
 ```
 
 Open the URL Vite prints (usually http://localhost:5173) and create your account on the sign-up page.
+
+## Password reset emails
+
+"Forgot password?" sends its link through [Brevo](https://www.brevo.com). The free plan sends 300 emails a day and doesn't need a domain of your own.
+
+1. Sign up at brevo.com.
+2. **Senders, Domains & Dedicated IPs → Senders → Add a sender**: the address emails should come from (a Gmail address works). Confirm it with the 6-digit code Brevo emails to it.
+3. **SMTP & API → API Keys → Generate a new API key**, and copy it.
+4. In `backend/.env`, set `BREVO_API_KEY` to the key and `EMAIL_FROM` to the verified sender, then restart the backend (it reads `.env` only at start-up).
+
+Until then, the backend writes each reset email, link included, to its log instead of sending it, so you can still reset a password locally by copying the link from the backend terminal. Emails sent from a Gmail address through Brevo can land in spam; tell users to check there.
 
 ## Upgrading from before accounts
 
