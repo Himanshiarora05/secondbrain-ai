@@ -14,6 +14,7 @@ import openai
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from app.services.ai.model_limits import cap_tokens
 from app.services.rag.rag_service import RAGService
 from app.services.ai.summary_service import (
     MODEL_NAME, REASONING_ALLOWANCE, AIGenerationError, ai_failure, check_reply, format_pages, format_timestamp,
@@ -122,7 +123,7 @@ STRICT JSON FLASHCARDS:"""
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.4 if attempt == 0 else 0.2,
-                max_tokens=1200 + REASONING_ALLOWANCE,
+                max_tokens=cap_tokens(1200 + REASONING_ALLOWANCE),
             )
             check_reply(response, "generating flashcards")
             content = response.choices[0].message.content or ""

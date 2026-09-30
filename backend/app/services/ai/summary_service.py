@@ -16,6 +16,7 @@ import openai
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from app.services.ai.model_limits import cap_tokens
 from app.services.rag.rag_service import RAGService
 from app.services.youtube.youtube_service import YouTubeService
 
@@ -175,7 +176,7 @@ def _complete(what: str, messages: list, temperature: float, max_tokens: int) ->
     for attempt in range(TRANSIENT_RETRIES + 1):
         try:
             response = client.chat.completions.create(
-                model=MODEL_NAME, messages=messages, temperature=temperature, max_tokens=max_tokens,
+                model=MODEL_NAME, messages=messages, temperature=temperature, max_tokens=cap_tokens(max_tokens),
             )
             return reply_text(response, what)
         except AIGenerationError:
