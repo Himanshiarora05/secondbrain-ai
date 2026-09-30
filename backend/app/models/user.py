@@ -36,3 +36,17 @@ class AuthSession(Base):
     expires_at = Column(DateTime, nullable=False)
 
     user = relationship("User", back_populates="sessions")
+
+
+class PasswordResetToken(Base):
+    """A "forgot password" link: single use, short-lived; only its SHA-256 is stored."""
+
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_hash = Column(String(64), unique=True, index=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    # Set when the link is used to change the password; a used link never works again.
+    used_at = Column(DateTime, nullable=True)

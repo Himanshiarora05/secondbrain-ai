@@ -1,6 +1,6 @@
 """Sign-up, login, logout and the current user (see app/services/auth_service.py)."""
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.database.db import get_db
 from app.models.user import User
 from app.services import auth_service as auth
+from app.services import password_reset as reset
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
 
@@ -80,3 +81,50 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
 @router.get("/me")
 def me(user: User = Depends(auth.get_current_user)):
     return {"user": _user_dict(user), "signup_allowed": auth.signup_allowed()}
+
+
+# ─── Forgot password (see app/services/password_reset.py) ───
+
+
+class ResetRequest(BaseModel):
+    email: str
+
+
+class ResetToken(BaseModel):
+    token: str
+
+
+class ResetConfirm(BaseModel):
+    token: str
+    password: str
+
+
+@router.post("/password-reset/request", status_code=202)
+def request_password_reset(body: ResetRequest, background: BackgroundTasks, db: Session = Depends(get_db)):
+    """Same answer whether or not the email has an account; the email goes out in the background."""
+    email = auth.normalize_email(body.email)
+    problem = auth.check_email(email)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)  # says nothing about accounts
+    user = db.query(User).filter(User.email == email).first()
+    if user is not None:
+        token = reset.create_reset(db, user)
+        if token:
+            background.add_task(reset.send_reset_email, user.email, token)
+    return {"message": reset.REQUEST_REPLY.format(minutes=reset.reset_minutes())}
+
+
+@router.post("/password-reset/check")
+def check_password_reset(body: ResetToken, db: Session = Depends(get_db)):
+    """Whether a reset link can still be used (so the page can say so before asking for a password)."""
+    return {"valid": reset.valid_token(db, body.token) is not None}
+
+
+@router.post("/password-reset/confirm")
+def confirm_password_reset(body: ResetConfirm, db: Session = Depends(get_db)):
+    problem = auth.check_password(body.password)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
+    if reset.reset_password(db, body.token, body.password) is None:
+        raise HTTPException(status_code=400, detail=reset.BAD_LINK)
+    return {"message": "Password changed. Log in with your new password."}
