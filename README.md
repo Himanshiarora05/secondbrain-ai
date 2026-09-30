@@ -14,7 +14,7 @@ A study notes summarizer. Add your study material, and SecondBrain turns it into
 - **Merged sets**: select 2–8 sources of any type in the Library (**Select**, tick them, **Create merged set**) and get one summary and one flashcard deck from all of them together.
   - Every point still says which source and where: `(1: p. 12)`, `(2: Slide 4)`, `[3: 02:05]`, with a numbered list of the sources at the top. Cards say, for example, "Graph_PPT.pdf · p. 12".
   - A set has its own summary and deck, so each document's own summary and flashcards stay as they are. Picking the same documents again opens the existing set instead of making a copy.
-  - Limits: 8 documents and 80,000 characters of text per set. If you delete a document, the set says its summary and cards are out of date until you regenerate them.
+  - Limits: 8 documents and 300,000 characters of text per set (change it with `MERGED_MAX_CHARS`). If you delete a document, the set says its summary and cards are out of date until you regenerate them.
 - **Ask questions**: search across everything you've saved and get an AI answer, with links to the sources it used (the exact video moment for YouTube, the page for websites) and the page for PDFs.
 - **No duplicate links**: adding a web page or YouTube video that's already in your library is refused, with an "Open it" link to the saved copy. Different forms of the same link count as the same (`http`/`https`, `www.`, `#section` or tracking parameters for pages; `youtu.be`, `/shorts/` or `&t=` for videos). To re-import, delete the saved copy first.
 - **Clear AI errors**: if the AI service can't respond (out of credits, invalid API key, rate limit, the daily free-model limit, timeout, outage), the page says so in plain words. The technical details go to the backend log. Momentary failures, such as an overloaded provider, are retried automatically.
@@ -81,6 +81,9 @@ Then edit `backend/.env`:
 | `EMAIL_FROM_NAME` | The sender name on emails. Default `SecondBrain`. |
 | `APP_BASE_URL` | Where the frontend runs, for the link in reset emails. Default `http://localhost:5173`. |
 | `PASSWORD_RESET_MINUTES` | How long a reset link works. Default `30`. |
+| `MERGED_MAX_CHARS` | The most text a merged set can hold. Default `300000`. Bigger sets take longer and cost more to summarise. |
+| `SUMMARY_PARALLEL_CALLS` | How many AI calls a long summary runs at once. Default `4`; lower it if you hit rate limits. |
+| `OPENROUTER_MODEL` | The AI model. Default `openai/gpt-4o-mini`; a `:free` model works for testing without credits. |
 
 `.env` is in `.gitignore`. Never commit it.
 
