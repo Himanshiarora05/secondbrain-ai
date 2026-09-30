@@ -1,13 +1,12 @@
 import { useEffect, useState, useRef } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { Plus, Video, UploadCloud, ArrowRight, Globe, CheckCircle2, XCircle, MinusCircle, X, Layers } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Plus, Video, UploadCloud, ArrowRight, Globe, CheckCircle2, XCircle, MinusCircle, X } from 'lucide-react'
 import {
   uploadPDF,
   uploadPPTX,
   uploadDOCX,
   uploadYouTube,
   uploadWebsite,
-  createMergedSet,
   getDocuments,
   DuplicateSourceError,
 } from '../../api/client'
@@ -45,11 +44,6 @@ function classifyFile(file: File): { kind: FileKind } | { error: string } {
 function uploadByKind(kind: FileKind, file: File): Promise<UploadResult> {
   return kind === 'pdf' ? uploadPDF(file) : kind === 'pptx' ? uploadPPTX(file) : uploadDOCX(file)
 }
-
-// A merged set's size limits (app/routes/merged_sets.py, which also caps the
-// total text (MERGED_MAX_CHARS, default 300,000 characters) and explains when it's over).
-const MIN_MERGED = 2
-const MAX_MERGED = 8
 
 // One file of a multi-file upload.
 interface BatchItem {
@@ -100,50 +94,30 @@ export function UploadZone({ onUploadSuccess, onMergedSetCreated }: UploadZonePr
   const [duplicate, setDuplicate] = useState<{ message: string; documentId: number } | null>(null)
   // Results of the last multi-file upload (null for single-file uploads).
   const [batch, setBatch] = useState<BatchItem[] | null>(null)
-  // Offer to merge the batch's documents: hidden after "Not now".
-  const [mergeDismissed, setMergeDismissed] = useState(false)
-  const [isMerging, setIsMerging] = useState(false)
-  const [mergeError, setMergeError] = useState<string | null>(null)
-  // The merge prompt after a single upload: the new document and the library it can be merged with.
+  // The merge prompt after an upload: the new document(s) and the library they can be merged with.
   const [mergeOffer, setMergeOffer] = useState<{ newIds: number[]; documents: DocumentItem[] } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
+  const promptRef = useRef<HTMLDivElement>(null)
   const isUploadingRef = useRef(false)
-  const navigate = useNavigate()
 
-  // When a multi-file upload finishes, bring its results (and the merge offer)
-  // into view: below the drop area they're often under the fold.
+  // When an upload finishes, bring the merge prompt (or a multi-file upload's
+  // results) into view: below the drop area they're often under the fold.
   const batchFinished = batch !== null && !isUploading
+  const promptShown = mergeOffer !== null && !isUploading
   useEffect(() => {
-    if (batchFinished) resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  }, [batchFinished])
+    const target = promptRef.current ?? resultsRef.current
+    if (batchFinished || promptShown) target?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [batchFinished, promptShown])
 
-  const uploadedIds = (batch ?? [])
-    .filter((it) => it.status === 'done' && it.documentId !== undefined)
-    .map((it) => it.documentId as number)
-
-  const handleMergeUploaded = async () => {
-    if (isMerging || uploadedIds.length < MIN_MERGED || uploadedIds.length > MAX_MERGED) return
-    setIsMerging(true)
-    setMergeError(null)
-    try {
-      // The existing merged-set API: same limits, and the same documents reopen an existing set.
-      const res = await createMergedSet(uploadedIds)
-      navigate(`/library/merged/${res.merged_set.id}/summary`, { state: { reopened: !res.created } })
-    } catch (err) {
-      setMergeError(err instanceof Error ? err.message : 'Failed to create merged set')
-      setIsMerging(false)
-    }
-  }
-
-  // After a single upload: offer to merge the new document, if there's anything
-  // to merge it with. Returns whether the prompt is shown.
-  const offerMerge = async (documentId?: number): Promise<boolean> => {
-    if (documentId === undefined) return false
+  // After an upload: offer to merge the new document(s), if there's something
+  // to merge (two new ones, or anything else in the library). Returns whether the prompt is shown.
+  const offerMerge = async (ids: (number | undefined)[]): Promise<boolean> => {
     try {
       const documents = await getDocuments()
-      if (!documents.some((d) => d.id === documentId) || !documents.some((d) => d.id !== documentId)) return false
-      setMergeOffer({ newIds: [documentId], documents })
+      const newIds = ids.filter((id): id is number => id !== undefined && documents.some((d) => d.id === id))
+      if (newIds.length === 0 || (newIds.length < 2 && documents.length === newIds.length)) return false
+      setMergeOffer({ newIds, documents })
       return true
     } catch {
       return false // the upload itself worked; there's just no prompt
@@ -179,8 +153,6 @@ export function UploadZone({ onUploadSuccess, onMergedSetCreated }: UploadZonePr
   const handleFiles = async (files: File[]) => {
     setBatch(null)
     setMergeOffer(null)
-    setMergeDismissed(false)
-    setMergeError(null)
     if (files.length === 1) {
       await handleFileUpload(files[0])
     } else {
@@ -221,7 +193,11 @@ export function UploadZone({ onUploadSuccess, onMergedSetCreated }: UploadZonePr
           update(i, { status: 'failed', message: err instanceof Error ? err.message : 'Upload failed' })
         }
       }
-      if (items.some((it) => it.status === 'done')) onUploadSuccess({ keepOpen: true })
+      const uploaded = items.filter((it) => it.status === 'done').map((it) => it.documentId)
+      if (uploaded.length > 0) {
+        await offerMerge(uploaded)
+        onUploadSuccess({ keepOpen: true }) // the per-file results stay on screen
+      }
     } finally {
       isUploadingRef.current = false
       setIsUploading(false)
@@ -244,7 +220,7 @@ export function UploadZone({ onUploadSuccess, onMergedSetCreated }: UploadZonePr
 
     try {
       const res = await uploadByKind(kind.kind, file)
-      onUploadSuccess({ keepOpen: await offerMerge(res.document_id) })
+      onUploadSuccess({ keepOpen: await offerMerge([res.document_id]) })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed')
     } finally {
@@ -271,7 +247,7 @@ export function UploadZone({ onUploadSuccess, onMergedSetCreated }: UploadZonePr
     try {
       const res = await uploadYouTube(youtubeUrl.trim())
       setYoutubeUrl('')
-      onUploadSuccess({ keepOpen: await offerMerge(res.document_id) })
+      onUploadSuccess({ keepOpen: await offerMerge([res.document_id]) })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to import YouTube video')
       setDuplicate(err instanceof DuplicateSourceError ? { message: err.message, documentId: err.documentId } : null)
@@ -299,7 +275,7 @@ export function UploadZone({ onUploadSuccess, onMergedSetCreated }: UploadZonePr
     try {
       const res = await uploadWebsite(result.url)
       setWebsiteUrl('')
-      onUploadSuccess({ keepOpen: await offerMerge(res.document_id) })
+      onUploadSuccess({ keepOpen: await offerMerge([res.document_id]) })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to import web page')
       setDuplicate(err instanceof DuplicateSourceError ? { message: err.message, documentId: err.documentId } : null)
@@ -481,42 +457,6 @@ export function UploadZone({ onUploadSuccess, onMergedSetCreated }: UploadZonePr
                 </li>
               ))}
             </ul>
-
-            {uploadedIds.length >= MIN_MERGED && !mergeDismissed && (
-              <div className="mt-4 p-4 rounded-2xl bg-[rgba(167,139,250,0.1)] border border-[rgba(167,139,250,0.3)]" role="group" aria-label="Merge the uploaded documents">
-                <div className="flex items-start gap-3">
-                  <Layers size={17} className="flex-shrink-0 mt-0.5 text-[#C4B5FD]" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-white">
-                      Also create a merged set from these {uploadedIds.length} documents?
-                    </p>
-                    <p className="text-xs text-[#DDD6FE] mt-1">
-                      {uploadedIds.length > MAX_MERGED
-                        ? `A merged set can have at most ${MAX_MERGED} documents; pick them with Select in the Library.`
-                        : "You'll get one summary and flashcard deck from all of them; each document keeps its own."}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center justify-end gap-2 mt-3">
-                  <button
-                    onClick={() => setMergeDismissed(true)}
-                    disabled={isMerging}
-                    className="px-3.5 py-2 rounded-xl text-xs font-medium text-[#A1A1AA] hover:text-white hover:bg-[rgba(255,255,255,0.06)] disabled:opacity-40 transition-all duration-200"
-                  >
-                    Not now
-                  </button>
-                  <button
-                    onClick={handleMergeUploaded}
-                    disabled={isMerging || uploadedIds.length > MAX_MERGED}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-[#8B5CF6] to-[#6D28D9] shadow-[0_0_20px_rgba(139,92,246,0.35)] hover:brightness-110 disabled:opacity-40 disabled:shadow-none disabled:cursor-not-allowed transition-all duration-200"
-                  >
-                    {isMerging ? <LoadingSpinner size={14} /> : <Layers size={14} />}
-                    <span>{isMerging ? 'Creating…' : 'Create merged set'}</span>
-                  </button>
-                </div>
-                {mergeError && <p role="alert" className="mt-2 text-xs text-[#F87171]">{mergeError}</p>}
-              </div>
-            )}
           </div>
         )}
         </>
@@ -605,7 +545,7 @@ export function UploadZone({ onUploadSuccess, onMergedSetCreated }: UploadZonePr
       )}
 
       {mergeOffer && !isUploading && (
-        <div className="max-w-2xl mx-auto">
+        <div ref={promptRef} className="max-w-2xl mx-auto scroll-mt-6">
           <MergePrompt
             newIds={mergeOffer.newIds}
             documents={mergeOffer.documents}
