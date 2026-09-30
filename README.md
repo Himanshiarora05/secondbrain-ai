@@ -5,13 +5,13 @@ A study notes summarizer. Add your study material, and SecondBrain turns it into
 ## What it does
 
 - **Accounts**: sign up with an email and password. Your documents, summaries, flashcards, merged sets and search results are private to your account; nobody else can see or open them, even with a direct link. Forgot your password? **Forgot password?** on the login page emails you a link to set a new one (it works once, expires after 30 minutes, and logs you out everywhere). See [Password reset emails](#password-reset-emails).
-- **Add sources**: PDF, PowerPoint (`.pptx`), Word (`.docx`), YouTube videos (with captions), and website links. You can pick or drop several files at once. Each becomes its own document, and afterwards the app offers to make a merged set from them straight away.
+- **Add sources**: PDF, PowerPoint (`.pptx`), Word (`.docx`), YouTube videos (with captions), and website links. You can pick or drop several files at once; each becomes its own document. After any upload, the app offers to merge the new document(s) with others in your library into a merged set, without going through the Library's **Select**. Creating the set doesn't generate anything; its summary is made when you open it.
 - **Summaries**: exam-revision notes for each source.
   - YouTube summaries link every point to its moment in the video (`[02:05]`).
   - PDF summaries cite the page of every point (`(p. 12)`, `(pp. 12–13)`), PowerPoint summaries the slide (`(Slide 4)`).
   - Website summaries end with a link back to the original page.
 - **Flashcards**: question-and-answer cards generated from any source, spread across the whole source. Each card shows where it came from: the video moment, the web page, the PDF page or the slides (Word cards don't show a location).
-- **Merged sets**: select 2–8 sources of any type in the Library (**Select**, tick them, **Create merged set**) and get one summary and one flashcard deck from all of them together.
+- **Merged sets**: select 2–8 sources of any type in the Library (**Select**, tick them, **Create merged set**), or from the prompt after an upload, and get one summary and one flashcard deck from all of them together.
   - Every point still says which source and where: `(1: p. 12)`, `(2: Slide 4)`, `[3: 02:05]`, with a numbered list of the sources at the top. Cards say, for example, "Graph_PPT.pdf · p. 12".
   - A set has its own summary and deck, so each document's own summary and flashcards stay as they are. Picking the same documents again opens the existing set instead of making a copy.
   - Limits: 8 documents and 300,000 characters of text per set (change it with `MERGED_MAX_CHARS`). If you delete a document, the set says its summary and cards are out of date until you regenerate them.
