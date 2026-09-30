@@ -24,6 +24,7 @@ from app.services.ai.summary_service import (
     final_input_budget,
     fit_notes,
     replace_labels,
+    run_calls,
 )
 
 # A source whose labelled text fits in one map batch is passed to the final
@@ -132,7 +133,9 @@ def generate_merged_summary(sources: List[MergedSource]) -> str:
         return f"## Source {s.number}: {s.title} ({SOURCE_KINDS.get(s.source_type, 'Document')})"
 
     total = sum(len(b) + 2 for blocks in labelled for b in blocks)
-    parts = []
+    # Per source: its text as is, or the map batches to summarise (a batch never
+    # mixes two sources). All sources' batches share one pool of parallel calls.
+    plans = []
     for s, blocks in zip(sources, labelled):
         if not blocks:
             continue
@@ -147,7 +150,15 @@ def generate_merged_summary(sources: List[MergedSource]) -> str:
                 current_len += len(block) + 2
             if current:
                 batches.append(current)
-            text = "\n\n".join(_summarize_labelled_batch("\n".join(batch)) for batch in batches)
+            plans.append((s, None, batches))
+        else:
+            plans.append((s, text, []))
+    all_batches = [batch for _, _, batches in plans for batch in batches]
+    notes = iter(run_calls(lambda batch: _summarize_labelled_batch("\n".join(batch)), all_batches))
+    parts = []
+    for s, text, batches in plans:
+        if text is None:
+            text = "\n\n".join(next(notes) for _ in batches)
         parts.append(f"{heading(s)}\n{text}")
 
     # Many or long sources: combine the notes in rounds until the final call can take them.

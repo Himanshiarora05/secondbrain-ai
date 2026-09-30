@@ -4,6 +4,7 @@ Run from backend/:  .venv/Scripts/python.exe tests/test_summary_retries.py
 """
 import os
 import sys
+import threading
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -128,11 +129,16 @@ def test_a_merged_summary_survives_one_overloaded_call():
                                [(f"p. {i + 1}", None) for i in range(8)], document_id=1)
     small = MergedSource(2, "small.pptx", "pptx", None, ["[Slide 1] Short."], [("Slide 1", None)], document_id=2)
     calls = []
+    lock = threading.Lock()
 
     def answer(**kw):
-        calls.append(kw)
-        if len(calls) == 1:
-            return overloaded_in_body()  # the first map call hits an overloaded provider
+        # Map calls run in parallel, so pick the overloaded one by content, not by order.
+        user = kw["messages"][1]["content"]
+        with lock:
+            calls.append(user)
+            first_try = calls.count(user) == 1
+        if "[S0] Chunk 0." in user and first_try:
+            return overloaded_in_body()  # the map call for the first batch hits an overloaded provider
         if kw["messages"][0]["content"].startswith("You are an expert study assistant creating one"):
             return reply("- Point [S0][S8]")
         return reply("- note [S0]")
@@ -142,7 +148,8 @@ def test_a_merged_summary_survives_one_overloaded_call():
     with patch.object(ss, "client", client), patch.object(ss, "RETRY_DELAY_SECONDS", 0), patch.object(ss, "logger"):
         out = mg.generate_merged_summary([long_source, small])
     assert out.endswith("- Point (1: p. 1; 2: Slide 1)"), out
-    assert calls[0]["messages"] == calls[1]["messages"], "the failed call was retried as is"
+    first_batch = [c for c in calls if "[S0] Chunk 0." in c]
+    assert len(first_batch) == 2 and first_batch[0] == first_batch[1], "the failed call was retried as is"
 
 
 if __name__ == "__main__":
