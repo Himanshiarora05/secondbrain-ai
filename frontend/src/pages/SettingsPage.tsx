@@ -150,6 +150,7 @@ export function SettingsPage() {
               ['GET', '/api/v1/search?query=…', 'Chroma vector search + AI generation'],
               ['POST', '/api/v1/documents/:id/summary', 'Map-reduce exam revision summary generation'],
               ['POST', '/api/v1/documents/:id/flashcards', 'Strict JSON flashcard deck generation'],
+              ['POST', '/api/v1/documents/:id/quiz', 'Cited multiple-choice quiz generation, with saved scores'],
             ].map(([method, path, desc]) => (
               <div key={path} className="flex flex-col sm:flex-row sm:items-center gap-2 py-3">
                 <span className={`w-14 text-center px-2 py-0.5 rounded text-[10px] font-bold uppercase ${

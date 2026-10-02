@@ -294,19 +294,13 @@ def _resolve_source(raw, allowed: set) -> Optional[int]:
     return idx if idx in allowed else None
 
 
-def generate_cited_flashcards(chunks: List[str], citations: List[Citation], count: int = 10) -> List[Dict]:
-    """Flashcards spread across the whole source, each citing the chunk it came from.
+def plan_batches(texts: List[str], count: int) -> Tuple[List[List[int]], int]:
+    """Which chunks each AI call sees, and how many items to ask each call for.
 
-    `chunks` are the stored chunk texts in document order, and `citations[i]`
-    is the citation for chunks[i]. Returns
-    [{"question", "answer", "source_label", "source_url"}, ...].
+    The model tends to write everything from the start of what it's shown, so
+    coverage is enforced here: each call sees one slice of the source. Shared
+    by flashcards and quizzes (quiz_service).
     """
-    texts = [c.strip() for c in chunks]
-    if not any(texts):
-        return []
-
-    # The model tends to write all its cards from the start of what it's shown,
-    # so coverage is enforced here: each call sees one slice of the source.
     wanted = max(1, math.ceil(count / CARDS_PER_CALL))
     total_len = sum(len(t) + 8 for t in texts)
     if total_len <= MAP_REDUCE_THRESHOLD:
@@ -321,34 +315,57 @@ def generate_cited_flashcards(chunks: List[str], citations: List[Citation], coun
         batches = [all_batches[i] for i in _pick_spread(len(all_batches), wanted)]
 
     per_batch = count if len(batches) == 1 else math.ceil(count / len(batches)) + 1
+    return batches, per_batch
 
-    per_batch_cards: List[List[Dict]] = []
-    for batch in batches:
-        labelled = "\n\n".join(f"[S{i}] {texts[i]}" for i in batch if texts[i])
-        raw_cards = _generate_flashcards_from_text(labelled, count=per_batch, cite=True)
-        allowed = set(batch)
-        cards = []
-        for card in raw_cards:
-            idx = _resolve_source(card.get("source"), allowed)
-            citation = citations[idx] if idx is not None and idx < len(citations) else None
-            cards.append({
-                "question": card["question"],
-                "answer": card["answer"],
-                "source_label": citation[0] if citation else None,
-                "source_url": citation[1] if citation else None,
-            })
-        per_batch_cards.append(cards)
 
-    # Pick round-robin across batches so the deck covers the whole source, not
-    # just its start, then return the picks in source order for studying.
+def labelled_batch(texts: List[str], batch: List[int]) -> str:
+    return "\n\n".join(f"[S{i}] {texts[i]}" for i in batch if texts[i])
+
+
+def citation_fields(raw_source, batch: List[int], citations: List[Citation]) -> Dict[str, Optional[str]]:
+    """source_label / source_url for the label the model gave, if it was in the batch it saw."""
+    idx = _resolve_source(raw_source, set(batch))
+    citation = citations[idx] if idx is not None and idx < len(citations) else None
+    return {
+        "source_label": citation[0] if citation else None,
+        "source_url": citation[1] if citation else None,
+    }
+
+
+def pick_across_batches(per_batch_items: List[List[Dict]], count: int) -> List[Dict]:
+    """Up to `count` items taken round-robin across batches (so they cover the
+    whole source, not just its start), skipping repeated questions, returned
+    in source order."""
     picked: List[Tuple[int, int]] = []
     seen_questions = set()
-    for rank in range(max((len(c) for c in per_batch_cards), default=0)):
-        for b, cards in enumerate(per_batch_cards):
-            if rank >= len(cards) or len(picked) >= count:
+    for rank in range(max((len(c) for c in per_batch_items), default=0)):
+        for b, items in enumerate(per_batch_items):
+            if rank >= len(items) or len(picked) >= count:
                 continue
-            norm_q = cards[rank]["question"].lower().strip(" ?.")
+            norm_q = items[rank]["question"].lower().strip(" ?.")
             if norm_q not in seen_questions:
                 seen_questions.add(norm_q)
                 picked.append((b, rank))
-    return [per_batch_cards[b][rank] for b, rank in sorted(picked)]
+    return [per_batch_items[b][rank] for b, rank in sorted(picked)]
+
+
+def generate_cited_flashcards(chunks: List[str], citations: List[Citation], count: int = 10) -> List[Dict]:
+    """Flashcards spread across the whole source, each citing the chunk it came from.
+
+    `chunks` are the stored chunk texts in document order, and `citations[i]`
+    is the citation for chunks[i]. Returns
+    [{"question", "answer", "source_label", "source_url"}, ...].
+    """
+    texts = [c.strip() for c in chunks]
+    if not any(texts):
+        return []
+
+    batches, per_batch = plan_batches(texts, count)
+    per_batch_cards: List[List[Dict]] = []
+    for batch in batches:
+        raw_cards = _generate_flashcards_from_text(labelled_batch(texts, batch), count=per_batch, cite=True)
+        per_batch_cards.append([
+            {"question": card["question"], "answer": card["answer"], **citation_fields(card.get("source"), batch, citations)}
+            for card in raw_cards
+        ])
+    return pick_across_batches(per_batch_cards, count)

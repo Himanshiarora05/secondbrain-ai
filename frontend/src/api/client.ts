@@ -1,4 +1,4 @@
-import type { SearchResult, DocumentItem, UploadResult, HealthStatus, Summary, FlashcardsResponse, MergedSet, CreateMergedSetResult, MergedSummary, MergedFlashcardsResponse, AuthUser, CardKind, ReviewGrade, ReviewResult, DueCardsResponse } from '../types'
+import type { SearchResult, DocumentItem, UploadResult, HealthStatus, Summary, FlashcardsResponse, MergedSet, CreateMergedSetResult, MergedSummary, MergedFlashcardsResponse, AuthUser, CardKind, ReviewGrade, ReviewResult, DueCardsResponse, QuizState, QuizAttemptResult } from '../types'
 
 const API_BASE_URL = '/api'
 
@@ -415,6 +415,46 @@ export function generateMergedFlashcards(setId: number, count = 10): Promise<Mer
     notifyDueChanged()
     return response.json()
   })
+}
+
+// ─── Quizzes ───
+// A document's quiz lives under /documents/:id/quiz, a merged set's under
+// /merged-sets/:id/quiz. Generating makes a new quiz; earlier attempts are kept.
+
+export type QuizOwner = { kind: 'document' | 'merged'; id: number }
+
+function quizBase({ kind, id }: QuizOwner): string {
+  return kind === 'merged' ? `${API_BASE_URL}/v1/merged-sets/${id}/quiz` : `${API_BASE_URL}/v1/documents/${id}/quiz`
+}
+
+export async function getQuiz(owner: QuizOwner): Promise<QuizState> {
+  const response = await apiFetch(quizBase(owner))
+  if (!response.ok) throw await detailError(response, 'Failed to load the quiz')
+  return response.json()
+}
+
+export function generateQuiz(owner: QuizOwner, count = 10): Promise<QuizState> {
+  return shareInFlight(`quiz:${owner.kind}:${owner.id}:${count}`, async () => {
+    const response = await apiFetch(`${quizBase(owner)}?count=${count}`, { method: 'POST' })
+    if (!response.ok) throw await detailError(response, 'Failed to generate the quiz')
+    return response.json()
+  })
+}
+
+export async function submitQuizAttempt(
+  owner: QuizOwner,
+  quizId: number,
+  answers: (number | null)[]
+): Promise<QuizAttemptResult> {
+  const response = await apiFetch(`${quizBase(owner)}/${quizId}/attempts`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ answers }),
+  })
+  if (!response.ok) throw await detailError(response, 'Failed to save your score')
+  return response.json()
 }
 
 // ─── Spaced repetition ───

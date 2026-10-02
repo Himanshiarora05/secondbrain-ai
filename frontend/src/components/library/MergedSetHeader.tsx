@@ -3,8 +3,8 @@ import { AlertTriangle, Info } from 'lucide-react'
 import type { MergedSet } from '../../types'
 import { sourceBadge } from './sourceBadge'
 
-// Member list shown under a merged set's title on its summary and flashcard pages.
-export function MergedSetMembers({ set, page }: { set: MergedSet; page: 'summary' | 'flashcards' }) {
+// Member list shown under a merged set's title on its summary, flashcard and quiz pages.
+export function MergedSetMembers({ set, page }: { set: MergedSet; page: 'summary' | 'flashcards' | 'quiz' }) {
   return (
     <ol className="mt-2.5 flex flex-wrap gap-1.5" aria-label="Documents in this set">
       {set.documents.map((doc, i) => {
@@ -29,8 +29,8 @@ export function MergedSetMembers({ set, page }: { set: MergedSet; page: 'summary
 
 interface MergedSetNoticesProps {
   set: MergedSet
-  // What was generated: 'summary' or 'deck'.
-  what: 'summary' | 'deck'
+  // What was generated: 'summary', 'deck' or 'quiz'.
+  what: 'summary' | 'deck' | 'quiz'
   stale: boolean
   reopened: boolean
 }

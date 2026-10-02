@@ -114,7 +114,7 @@ def test_every_endpoint_needs_a_session():
     anon = TestClient(main.app)
     checked = []
     for route_path, operations in main.app.openapi()["paths"].items():
-        path = route_path.replace("{document_id}", str(a1)).replace("{set_id}", "1")
+        path = route_path.replace("{document_id}", str(a1)).replace("{set_id}", "1").replace("{quiz_id}", "1")
         for method in (m.upper() for m in operations):
             if (method, route_path) in PUBLIC:
                 continue
@@ -143,6 +143,9 @@ def test_another_users_document_looks_missing():
         ("POST", "/summary", None),
         ("GET", "/flashcards", None),
         ("POST", "/flashcards", None),
+        ("GET", "/quiz", None),
+        ("POST", "/quiz", None),
+        ("POST", "/quiz/1/attempts", {"answers": [0]}),
         ("PATCH", "", {"filename": "stolen.docx"}),
         ("DELETE", "", None),
     ]:
@@ -166,6 +169,9 @@ def test_merged_sets_are_private():
         ("POST", f"/api/v1/merged-sets/{set_id}/summary", None),
         ("GET", f"/api/v1/merged-sets/{set_id}/flashcards", None),
         ("POST", f"/api/v1/merged-sets/{set_id}/flashcards", None),
+        ("GET", f"/api/v1/merged-sets/{set_id}/quiz", None),
+        ("POST", f"/api/v1/merged-sets/{set_id}/quiz", None),
+        ("POST", f"/api/v1/merged-sets/{set_id}/quiz/1/attempts", {"answers": [0]}),
     ]:
         r = bob.request(method, path, json=body)
         assert r.status_code == 404 and r.json()["detail"] == "Merged set not found", f"{method} {path}: {r.status_code}"

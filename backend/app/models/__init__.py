@@ -4,3 +4,4 @@ from app.models.summary import Summary
 from app.models.flashcard import Flashcard
 from app.models.merged_set import MergedSet, MergedSetDocument, MergedSummary, MergedFlashcard
 from app.models.user import User, AuthSession, PasswordResetToken
+from app.models.quiz import Quiz, QuizQuestion, QuizAttempt

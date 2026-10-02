@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from app.services.ai.flashcard_service import generate_cited_flashcards
+from app.services.ai.quiz_service import generate_cited_quiz
 from app.services.ai.summary_service import (
     CITATION_RULE,
     Citation,
@@ -237,3 +238,24 @@ def generate_merged_flashcards(sources: List[MergedSource], count: int = 10) -> 
                 "document_id": source.document_id,
             })
     return deck
+
+
+# ─── Merged quizzes ───
+
+
+def generate_merged_quiz(sources: List[MergedSource], count: int = 10) -> List[dict]:
+    """A quiz covering every source, grouped by source in set order.
+
+    Shares are split like merged flashcards (allocate_cards) and citations
+    name the source the same way (merged_card_citation). Questions carry
+    "document_id". Raises AIGenerationError if any source's generation fails.
+    """
+    sizes = [sum(len((c or "").strip()) for c in s.chunks) for s in sources]
+    quiz = []
+    for source, share in zip(sources, allocate_cards(count, sizes)):
+        if share == 0:
+            continue
+        for question in generate_cited_quiz(source.chunks, source.citations, count=share):
+            label, url = merged_card_citation(source, question.get("source_label"), question.get("source_url"))
+            quiz.append({**question, "source_label": label, "source_url": url, "document_id": source.document_id})
+    return quiz

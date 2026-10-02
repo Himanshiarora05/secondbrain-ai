@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FileText, BookOpen, Layers, Presentation, FileEdit, Video, Globe, Image as ImageIcon, Trash2, Pencil, Check } from 'lucide-react'
+import { FileText, BookOpen, Layers, ListChecks, Presentation, FileEdit, Video, Globe, Image as ImageIcon, Trash2, Pencil, Check } from 'lucide-react'
 import type { DocumentItem } from '../../types'
 import { DocumentNameEditor } from './DocumentNameEditor'
 
@@ -7,6 +7,7 @@ interface DocumentCardProps {
   document: DocumentItem
   onOpenSummary?: (doc: DocumentItem) => void
   onOpenFlashcards?: (doc: DocumentItem) => void
+  onOpenQuiz?: (doc: DocumentItem) => void
   onDelete?: (doc: DocumentItem) => void
   onRename?: (doc: DocumentItem, name: string) => Promise<void>
   onClick?: () => void
@@ -23,6 +24,7 @@ export function DocumentCard({
   document,
   onOpenSummary,
   onOpenFlashcards,
+  onOpenQuiz,
   onDelete,
   onRename,
   onClick,
@@ -202,6 +204,17 @@ export function DocumentCard({
           >
             <Layers size={13} />
             <span>Flashcards</span>
+          </button>
+        )}
+
+        {onOpenQuiz && (
+          <button
+            onClick={() => onOpenQuiz(document)}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-full bg-[rgba(59,130,246,0.12)] text-[#93C5FD] border border-[rgba(59,130,246,0.25)] hover:bg-gradient-to-r hover:from-[#3B82F6] hover:to-[#1D4ED8] hover:text-white hover:shadow-[0_0_16px_rgba(59,130,246,0.3)] transition-all duration-200"
+            title="Test yourself with a multiple-choice quiz"
+          >
+            <ListChecks size={13} />
+            <span>Quiz</span>
           </button>
         )}
 
