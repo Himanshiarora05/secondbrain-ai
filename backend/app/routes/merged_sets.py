@@ -8,7 +8,7 @@ the documents of an existing set returns that set instead of a copy.
 import json
 import os
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -36,14 +36,39 @@ MAX_DOCUMENTS = 8
 # in rounds when they're too long for one final call, so the model's context
 # size doesn't limit it.
 DEFAULT_MAX_TOTAL_CHARS = 300_000
+# Text of any one document in a set (MERGED_MAX_DOC_CHARS in .env). One long
+# textbook makes most of a set's AI calls on its own; it's studied by itself
+# instead. Checked when a set is created, like the total: existing sets keep
+# their documents and can still be regenerated. The frontend mirrors the
+# default (MAX_MERGED_DOC_CHARS) to mark such documents before submitting.
+DEFAULT_MAX_DOC_CHARS = 100_000
+
+
+def _limit_from_env(name: str, default: int) -> int:
+    try:
+        value = int(os.getenv(name, "").replace("_", "").replace(",", "").strip())
+    except ValueError:
+        return default
+    return value if value > 0 else default
 
 
 def max_total_chars() -> int:
-    try:
-        value = int(os.getenv("MERGED_MAX_CHARS", "").replace("_", "").replace(",", "").strip())
-    except ValueError:
-        return DEFAULT_MAX_TOTAL_CHARS
-    return value if value > 0 else DEFAULT_MAX_TOTAL_CHARS
+    return _limit_from_env("MERGED_MAX_CHARS", DEFAULT_MAX_TOTAL_CHARS)
+
+
+def max_doc_chars() -> int:
+    return _limit_from_env("MERGED_MAX_DOC_CHARS", DEFAULT_MAX_DOC_CHARS)
+
+
+def too_long_message(too_long: List[Tuple[str, int]], limit: int) -> str:
+    """The 400 detail naming every document over the per-document limit."""
+    if len(too_long) == 1:
+        name, chars = too_long[0]
+        return (f'"{name}" has {chars:,} characters of text; a document in a merged set can have at most '
+                f"{limit:,}. Study it on its own, or pick a shorter document.")
+    listed = [f'"{name}" ({chars:,} characters)' for name, chars in too_long]
+    return (f"{', '.join(listed[:-1])} and {listed[-1]} are too long: a document in a merged set can have at most "
+            f"{limit:,} characters of text. Study them on their own, or pick shorter documents.")
 
 # Any fixed number: serialises set creation so a double click can't create two copies.
 _CREATE_LOCK_KEY = 7_340_001
@@ -189,6 +214,10 @@ def create_merged_set(body: CreateMergedSetRequest, db: Session = Depends(get_db
     missing = [i for i in document_ids if i not in docs]
     if missing:
         raise HTTPException(status_code=404, detail=f"Document not found: {', '.join(map(str, missing))}")
+    doc_limit = max_doc_chars()
+    too_long = [(docs[i].filename, docs[i].chars) for i in document_ids if docs[i].chars > doc_limit]
+    if too_long:
+        raise HTTPException(status_code=400, detail=too_long_message(too_long, doc_limit))
     total_chars = sum(docs[i].chars for i in document_ids)
     limit = max_total_chars()
     if total_chars > limit:

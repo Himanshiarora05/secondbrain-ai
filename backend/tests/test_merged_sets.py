@@ -108,12 +108,59 @@ def test_selection_rules():
 
 def test_character_limit():
     db = fresh_db()
-    a, b = add_doc(db, "big.pdf", chars=250_000), add_doc(db, "other.pdf", chars=50_000)
-    assert create(db, [a, b])["created"] is True, "exactly 300,000 (the default) is allowed"
+    ids = [add_doc(db, f"part{i}.pdf", chars=100_000) for i in range(3)]
+    assert create(db, ids)["created"] is True, "exactly 300,000 (the default) is allowed"
     c = add_doc(db, "one-more.pdf", chars=1)
-    res = create(db, [a, b, c])
+    res = create(db, ids + [c])
     assert isinstance(res, HTTPException) and res.status_code == 400, res
     assert "300,001 characters" in res.detail and "at most 300,000" in res.detail, res.detail
+
+
+def test_per_document_limit():
+    db = fresh_db()
+    at_limit, small = add_doc(db, "at-limit.pdf", chars=100_000), add_doc(db, "small.pdf", chars=500)
+    assert create(db, [at_limit, small])["created"] is True, "exactly 100,000 (the default) is allowed"
+    big = add_doc(db, "(R17A1204) Artificial Intelligence.pdf", chars=237_759)
+    res = create(db, [small, big])
+    assert isinstance(res, HTTPException) and res.status_code == 400, res
+    assert res.detail == ('"(R17A1204) Artificial Intelligence.pdf" has 237,759 characters of text; a document in a '
+                          "merged set can have at most 100,000. Study it on its own, or pick a shorter document."), res.detail
+    other = add_doc(db, "huge.pptx", chars=100_001)
+    res = create(db, [big, small, other])
+    assert res.detail.startswith('"(R17A1204) Artificial Intelligence.pdf" (237,759 characters) and "huge.pptx" '
+                                 "(100,001 characters) are too long"), res.detail
+    assert "Study them on their own" in res.detail
+    assert db.query(MergedSet).count() == 1, "nothing was created for the refused selections"
+
+
+def test_per_document_limit_is_configurable():
+    db = fresh_db()
+    a, b = add_doc(db, "a.pdf", chars=150_000), add_doc(db, "b.pdf", chars=1_000)
+    os.environ["MERGED_MAX_DOC_CHARS"] = "200,000"
+    try:
+        assert create(db, [a, b])["created"] is True
+        os.environ["MERGED_MAX_DOC_CHARS"] = "500"
+        res = create(db, [a, b, add_doc(db, "c.pdf", chars=10)])
+        assert isinstance(res, HTTPException) and "at most 500 characters" in res.detail, res
+    finally:
+        del os.environ["MERGED_MAX_DOC_CHARS"]
+    for bad in ("", "lots", "0", "-5"):
+        os.environ["MERGED_MAX_DOC_CHARS"] = bad
+        try:
+            assert ms.max_doc_chars() == ms.DEFAULT_MAX_DOC_CHARS == 100_000, bad
+        finally:
+            del os.environ["MERGED_MAX_DOC_CHARS"]
+
+
+def test_documents_list_reports_char_count():
+    from app.routes import documents as docs_route
+    db = fresh_db()
+    a = add_doc(db, "a.pdf", chars=1_234)
+    empty = Document(user_id=db.info["user"].id, file_id="f-empty", filename="empty.pdf", content=None, source_type="pdf")
+    db.add(empty)
+    db.commit()
+    listed = {d["id"]: d for d in docs_route.list_documents(db=db, user=db.info["user"])}
+    assert listed[a]["char_count"] == 1_234 and listed[empty.id]["char_count"] == 0, listed
 
 
 def test_character_limit_is_configurable():

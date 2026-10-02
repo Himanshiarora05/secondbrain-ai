@@ -15,6 +15,7 @@ import { UploadZone } from '../components/library/UploadZone'
 import { DocumentCard } from '../components/library/DocumentCard'
 import { DocumentNameEditor } from '../components/library/DocumentNameEditor'
 import { MergedSetCard } from '../components/library/MergedSetCard'
+import { MAX_MERGED, MAX_MERGED_DOC_CHARS, MIN_MERGED, tooLongNote, tooLongToMerge } from '../components/library/mergeLimits'
 import { EmptyState } from '../components/ui/EmptyState'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import {
@@ -30,11 +31,6 @@ import {
   X,
   Layers,
 } from 'lucide-react'
-
-// Same limits as the backend (app/routes/merged_sets.py), which also caps the
-// total text (MERGED_MAX_CHARS, default 300,000 characters) and explains when a selection is over it.
-const MIN_MERGED = 2
-const MAX_MERGED = 8
 
 export function LibraryPage() {
   const [documents, setDocuments] = useState<DocumentItem[]>([])
@@ -126,6 +122,8 @@ export function LibraryPage() {
   }
 
   const toggleSelected = (id: number) => {
+    const doc = documents.find((d) => d.id === id)
+    if (doc && tooLongToMerge(doc)) return
     setCreateError(null)
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : prev.length >= MAX_MERGED ? prev : [...prev, id]
@@ -246,6 +244,8 @@ export function LibraryPage() {
           <p>
             Pick {MIN_MERGED}–{MAX_MERGED} documents of any type to study together. The merged set gets its own
             summary and flashcard deck; each document's own summary and flashcards stay as they are.
+            {documents.some(tooLongToMerge) &&
+              ` Documents over ${MAX_MERGED_DOC_CHARS.toLocaleString()} characters of text can't be merged; study those on their own.`}
           </p>
         </div>
       )}
@@ -373,6 +373,7 @@ export function LibraryPage() {
                 selectable={selecting}
                 selected={selectedIds.includes(doc.id)}
                 onToggleSelect={() => toggleSelected(doc.id)}
+                unselectableReason={tooLongToMerge(doc) ? tooLongNote(doc) : undefined}
               />
             ))
           ) : (
@@ -410,10 +411,13 @@ export function LibraryPage() {
                             ? undefined
                             : () => navigate(`/library/${doc.id}/summary`)
                       }
-                      className={`group transition-colors duration-200 cursor-pointer ${
-                        selecting && selectedIds.includes(doc.id)
-                          ? 'bg-[rgba(59,130,246,0.1)] hover:bg-[rgba(59,130,246,0.14)]'
-                          : 'hover:bg-[rgba(255,255,255,0.05)]'
+                      title={selecting && tooLongToMerge(doc) ? tooLongNote(doc) : undefined}
+                      className={`group transition-colors duration-200 ${
+                        selecting && tooLongToMerge(doc)
+                          ? 'opacity-50 cursor-not-allowed'
+                          : selecting && selectedIds.includes(doc.id)
+                            ? 'cursor-pointer bg-[rgba(59,130,246,0.1)] hover:bg-[rgba(59,130,246,0.14)]'
+                            : 'cursor-pointer hover:bg-[rgba(255,255,255,0.05)]'
                       }`}
                     >
                       {selecting && (
@@ -422,8 +426,9 @@ export function LibraryPage() {
                             type="checkbox"
                             checked={selectedIds.includes(doc.id)}
                             onChange={() => toggleSelected(doc.id)}
-                            aria-label={`Select ${doc.filename}`}
-                            className="w-4 h-4 accent-[#3B82F6] cursor-pointer"
+                            disabled={tooLongToMerge(doc)}
+                            aria-label={tooLongToMerge(doc) ? `${doc.filename}: ${tooLongNote(doc)}` : `Select ${doc.filename}`}
+                            className="w-4 h-4 accent-[#3B82F6] cursor-pointer disabled:cursor-not-allowed"
                           />
                         </td>
                       )}
@@ -442,6 +447,9 @@ export function LibraryPage() {
                           >
                             {doc.filename}
                           </span>
+                        )}
+                        {selecting && tooLongToMerge(doc) && (
+                          <span className="block mt-1 text-[11px] font-medium text-[#FBBF24]">{tooLongNote(doc)}</span>
                         )}
                       </td>
                       <td className="px-6 py-4 text-sm text-[#A1A1AA] whitespace-nowrap font-mono">

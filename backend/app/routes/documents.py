@@ -23,7 +23,8 @@ MAX_NAME_LENGTH = 255
 
 @router.get("/documents")
 def list_documents(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    # The user's documents with their chunk counts
+    # The user's documents with their chunk counts and text length (the merge
+    # pickers mark documents over the per-document limit of a merged set)
     results = (
         db.query(
             Document.id,
@@ -32,6 +33,7 @@ def list_documents(db: Session = Depends(get_db), user: User = Depends(get_curre
             Document.source_type,
             Document.source_url,
             func.count(Chunk.id).label("total_chunks"),
+            func.coalesce(func.length(Document.content), 0).label("char_count"),
         )
         .outerjoin(Chunk, Chunk.document_id == Document.id)
         .filter(Document.user_id == user.id)
@@ -48,6 +50,7 @@ def list_documents(db: Session = Depends(get_db), user: User = Depends(get_curre
             "source_type": row.source_type or "pdf",
             "source_url": row.source_url,
             "total_chunks": row.total_chunks,
+            "char_count": row.char_count,
         }
         for row in results
     ]
