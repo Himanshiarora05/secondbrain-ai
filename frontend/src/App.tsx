@@ -1,29 +1,43 @@
+import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AppLayout } from './components/layout/AppLayout'
 import { HomePage } from './pages/HomePage'
-import { LibraryPage } from './pages/LibraryPage'
-import { SummaryPage } from './pages/SummaryPage'
-import { FlashcardPage } from './pages/FlashcardPage'
-import { FlashcardsHubPage } from './pages/FlashcardsHubPage'
-import { DueTodayPage } from './pages/DueTodayPage'
-import { SettingsPage } from './pages/SettingsPage'
-import { AuthPage } from './pages/AuthPage'
-import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
-import { ResetPasswordPage } from './pages/ResetPasswordPage'
+import { LoadingSpinner } from './components/ui/LoadingSpinner'
 import { AuthProvider } from './context/AuthContext'
 import { DocumentProvider } from './context/DocumentContext'
 import { RequireAuth } from './components/auth/RequireAuth'
 import { SplashScreen } from './components/common/SplashScreen'
+
+// Every page but Home loads on first visit, so the start-up bundle stays small
+// (vite.config.ts splits React itself into its own chunk). Pages inside the app
+// wait in AppLayout's Suspense, sidebar intact; the public pages use PageFallback.
+const LibraryPage = lazy(() => import('./pages/LibraryPage').then((m) => ({ default: m.LibraryPage })))
+const SummaryPage = lazy(() => import('./pages/SummaryPage').then((m) => ({ default: m.SummaryPage })))
+const FlashcardPage = lazy(() => import('./pages/FlashcardPage').then((m) => ({ default: m.FlashcardPage })))
+const FlashcardsHubPage = lazy(() => import('./pages/FlashcardsHubPage').then((m) => ({ default: m.FlashcardsHubPage })))
+const DueTodayPage = lazy(() => import('./pages/DueTodayPage').then((m) => ({ default: m.DueTodayPage })))
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })))
+const AuthPage = lazy(() => import('./pages/AuthPage').then((m) => ({ default: m.AuthPage })))
+const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage').then((m) => ({ default: m.ForgotPasswordPage })))
+const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage').then((m) => ({ default: m.ResetPasswordPage })))
+
+function PageFallback() {
+  return (
+    <div className="flex-1 flex items-center justify-center min-h-screen bg-[var(--bg-base)]">
+      <LoadingSpinner size={36} className="text-[#3B82F6]" />
+    </div>
+  )
+}
 
 function App() {
   return (
     <AuthProvider>
       <DocumentProvider>
         <Routes>
-          <Route path="/login" element={<AuthPage mode="login" />} />
-          <Route path="/signup" element={<AuthPage mode="signup" />} />
-          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-          <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/login" element={<Suspense fallback={<PageFallback />}><AuthPage mode="login" /></Suspense>} />
+          <Route path="/signup" element={<Suspense fallback={<PageFallback />}><AuthPage mode="signup" /></Suspense>} />
+          <Route path="/forgot-password" element={<Suspense fallback={<PageFallback />}><ForgotPasswordPage /></Suspense>} />
+          <Route path="/reset-password" element={<Suspense fallback={<PageFallback />}><ResetPasswordPage /></Suspense>} />
           <Route
             path="/"
             element={
