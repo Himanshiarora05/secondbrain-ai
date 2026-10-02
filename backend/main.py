@@ -36,6 +36,15 @@ def on_startup():
     # Previously nothing called Base.metadata.create_all() anywhere in the
     # app - it only worked if the tables had been created some other way.
     init_db()
+    # Without a persistent disk (Hugging Face Spaces) Chroma starts empty after a
+    # restart; Postgres has every chunk, so rebuild the vectors from it.
+    import time
+    from app.database.chroma_rebuild import rebuild_if_empty
+    started = time.monotonic()
+    rebuilt = rebuild_if_empty()
+    if rebuilt:
+        print(f"Vector store was empty: rebuilt {rebuilt} chunks from Postgres "
+              f"in {time.monotonic() - started:.1f} s")
     # The model's context and output limits, so no AI call asks for more than it allows.
     from app.services.ai.model_limits import load_model_limits
     from app.services.ai.summary_service import MODEL_NAME

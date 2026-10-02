@@ -23,7 +23,14 @@ if not DATABASE_URL:
     )
 
 # echo=True is noisy in production logs; only echo when explicitly asked.
-engine = create_engine(DATABASE_URL, echo=os.getenv("SQL_ECHO", "false").lower() == "true")
+# Hosted Postgres (Neon) closes idle connections and suspends the database, so
+# check a pooled connection before using it and replace old ones.
+engine = create_engine(
+    DATABASE_URL,
+    echo=os.getenv("SQL_ECHO", "false").lower() == "true",
+    pool_pre_ping=True,
+    pool_recycle=300,
+)
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
