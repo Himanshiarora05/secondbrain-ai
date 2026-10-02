@@ -149,14 +149,16 @@ def due(db, user, today=TODAY):
     return rv.due_cards(today=today, db=db, user=user)
 
 
-def test_new_cards_have_defaults_and_are_not_due():
+def test_new_cards_have_defaults_and_are_due_from_the_start():
     db = fresh_db()
     alice = add_user(db, "alice@example.com")
-    doc, _ = add_deck(db, alice, "cells.pdf")
+    doc, cards = add_deck(db, alice, "cells.pdf")
     deck = study.get_document_flashcards(doc.id, db=db, user=alice)["flashcards"]
     assert all((c["ease"], c["interval_days"], c["repetitions"], c["due_date"]) == (2.5, 0, 0, None) for c in deck), deck
-    assert due(db, alice)["count"] == 0
-    assert rv.due_count(today=TODAY, db=db, user=alice)["count"] == 0
+    listed = due(db, alice)
+    assert [c["id"] for c in listed["cards"]] == [c.id for c in cards], "never-rated cards are due, in deck order"
+    assert all(c["due_date"] is None for c in listed["cards"])
+    assert rv.due_count(today=TODAY, db=db, user=alice)["count"] == 3
 
 
 def test_rating_schedules_and_due_list_follows():
@@ -168,12 +170,13 @@ def test_rating_schedules_and_due_list_follows():
     assert rate(db, alice, "document", cards[1].id, "again")["due_date"] == TODAY.isoformat()
 
     today_list = due(db, alice)
-    assert [c["id"] for c in today_list["cards"]] == [cards[1].id], "only the 'again' card is due today"
+    assert [c["id"] for c in today_list["cards"]] == [cards[1].id, cards[2].id],         "the 'again' card, then the unrated one; the 'good' card waits until tomorrow"
     tomorrow = due(db, alice, TODAY + timedelta(days=1))
-    assert sorted(c["id"] for c in tomorrow["cards"]) == sorted([cards[0].id, cards[1].id])
+    assert [c["id"] for c in tomorrow["cards"]] == [cards[1].id, cards[0].id, cards[2].id], "oldest due first, new last"
     card = tomorrow["cards"][0]
     assert card["deck_name"] == "cells.pdf" and card["deck_id"] == doc.id and card["deck_source_type"] == "pdf"
-    assert rv.due_count(today=TODAY + timedelta(days=1), db=db, user=alice)["count"] == 2
+    assert rv.due_count(today=TODAY + timedelta(days=1), db=db, user=alice)["count"] == 3
+    assert rv.due_count(today=TODAY, db=db, user=alice)["count"] == 2
 
     # The deck shows the schedule too.
     deck = {c["id"]: c for c in study.get_document_flashcards(doc.id, db=db, user=alice)["flashcards"]}
@@ -186,9 +189,12 @@ def test_merged_cards_are_rated_and_listed_with_their_set():
     a, _ = add_deck(db, alice, "a.pdf", n=1)
     b, _ = add_deck(db, alice, "b.pptx", n=1, source_type="pptx")
     s, mcards = add_merged_deck(db, alice, [a, b])
-    assert rate(db, alice, "merged", mcards[0].id, "again")["interval_days"] == 0
-    listed = due(db, alice)["cards"]
-    assert len(listed) == 1 and listed[0]["kind"] == "merged" and listed[0]["deck_name"] == "Set"
+    assert rate(db, alice, "merged", mcards[0].id, "good")["interval_days"] == 1
+    assert rate(db, alice, "merged", mcards[0].id, "again", today=TODAY)["interval_days"] == 0
+    merged_due = [c for c in due(db, alice)["cards"] if c["kind"] == "merged"]
+    assert [c["id"] for c in merged_due] == [mcards[0].id, mcards[1].id], merged_due
+    listed = merged_due
+    assert listed[0]["deck_name"] == "Set"
     assert listed[0]["deck_source_type"] == "merged" and listed[0]["deck_id"] == s.id
     deck = merged_sets.get_merged_flashcards(s.id, db=db, user=alice)["flashcards"]
     assert deck[0]["due_date"] == TODAY.isoformat()
@@ -206,7 +212,9 @@ def test_due_list_mixes_both_kinds_oldest_first():
     rate(db, alice, "document", cards[0].id, "good", today=TODAY)                       # due TODAY+1
     rate(db, alice, "merged", mcards[0].id, "again", today=TODAY - timedelta(days=1))  # overdue since yesterday
     listed = due(db, alice, TODAY + timedelta(days=1))["cards"]
-    assert [(c["kind"], c["id"]) for c in listed] == [("merged", mcards[0].id), ("document", cards[0].id)], listed
+    scheduled = [(c["kind"], c["id"]) for c in listed if c["due_date"]]
+    assert scheduled == [("merged", mcards[0].id), ("document", cards[0].id)], listed
+    assert all(c["due_date"] is None for c in listed[2:]) and len(listed) == 4, "the two unrated cards come last"
 
 
 def test_other_users_cards_look_missing_and_never_show():
@@ -220,7 +228,7 @@ def test_other_users_cards_look_missing_and_never_show():
         res = rate(db, bob, kind, cid, "easy")
         missing = rate(db, bob, kind, 999_999, "easy")
         assert isinstance(res, HTTPException) and res.status_code == 404 and res.detail == missing.detail
-    assert due(db, bob)["count"] == 0
+    assert due(db, bob)["count"] == 0 and rv.due_count(today=TODAY, db=db, user=bob)["count"] == 0
     assert db.get(Flashcard, cards[0].id).repetitions == 0, "Bob's rating changed nothing"
     assert db.get(Flashcard, cards[0].id).due_date == TODAY
 
@@ -230,7 +238,7 @@ def test_deleting_a_document_removes_its_due_cards():
     alice = add_user(db, "alice@example.com")
     doc, cards = add_deck(db, alice, "cells.pdf")
     rate(db, alice, "document", cards[0].id, "again")
-    assert due(db, alice)["count"] == 1
+    assert due(db, alice)["count"] == 3
     db.delete(db.get(Document, doc.id))
     db.commit()
     assert due(db, alice)["count"] == 0
