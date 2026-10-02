@@ -177,6 +177,53 @@ export interface MergedFlashcardsResponse {
   stale: boolean
 }
 
+// ─── Quizzes (a document's or a merged set's) ───
+
+export interface QuizQuestion {
+  id: number
+  question: string
+  // Always 4, in the order shown.
+  options: string[]
+  correct_index: number
+  explanation: string
+  // Like flashcards: "p. 12", "Slide 4", "02:05" (+ link); merged quizzes name the source.
+  source_label: string | null
+  source_url: string | null
+  // Merged quizzes: the source document, null once it's deleted.
+  document_id: number | null
+}
+
+export interface Quiz {
+  id: number
+  created_at: string | null
+  questions: QuizQuestion[]
+  // Merged quizzes: a source document was deleted after the quiz was made.
+  stale: boolean
+}
+
+export interface QuizAttempt {
+  id: number
+  quiz_id: number
+  score: number
+  total: number
+  // One per question: the chosen option's index, or null if skipped.
+  answers: (number | null)[]
+  created_at: string | null
+}
+
+export interface QuizState {
+  document_id: number | null
+  set_id: number | null
+  // The newest quiz; null until one is generated.
+  quiz: Quiz | null
+  // Recent attempts at any of this document's (or set's) quizzes, newest first.
+  attempts: QuizAttempt[]
+}
+
+export interface QuizAttemptResult extends QuizState {
+  attempt: QuizAttempt
+}
+
 // ─── Accounts ───
 
 export interface AuthUser {

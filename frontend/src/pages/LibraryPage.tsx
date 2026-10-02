@@ -309,6 +309,7 @@ export function LibraryPage() {
                 set={set}
                 onOpenSummary={(s) => navigate(`/library/merged/${s.id}/summary`)}
                 onOpenFlashcards={(s) => navigate(`/library/merged/${s.id}/flashcards`)}
+                onOpenQuiz={(s) => navigate(`/library/merged/${s.id}/quiz`)}
                 onRename={handleRenameSet}
                 onDelete={handleDeleteSet}
               />
@@ -368,6 +369,7 @@ export function LibraryPage() {
                 onClick={() => navigate(`/library/${doc.id}/summary`)}
                 onOpenSummary={() => navigate(`/library/${doc.id}/summary`)}
                 onOpenFlashcards={() => navigate(`/library/${doc.id}/flashcards`)}
+                onOpenQuiz={() => navigate(`/library/${doc.id}/quiz`)}
                 onDelete={handleDeleteDocument}
                 onRename={handleRenameDocument}
                 selectable={selecting}
@@ -480,6 +482,12 @@ export function LibraryPage() {
                             className="px-3.5 py-1 rounded-full text-xs font-medium bg-[rgba(59,130,246,0.12)] text-[#93C5FD] hover:bg-gradient-to-r hover:from-[#3B82F6] hover:to-[#1D4ED8] hover:text-white border border-[rgba(59,130,246,0.25)] hover:shadow-[0_0_15px_rgba(59,130,246,0.3)] transition-all duration-200"
                           >
                             Flashcards
+                          </button>
+                          <button
+                            onClick={() => navigate(`/library/${doc.id}/quiz`)}
+                            className="px-3.5 py-1 rounded-full text-xs font-medium bg-[rgba(59,130,246,0.12)] text-[#93C5FD] hover:bg-gradient-to-r hover:from-[#3B82F6] hover:to-[#1D4ED8] hover:text-white border border-[rgba(59,130,246,0.25)] hover:shadow-[0_0_15px_rgba(59,130,246,0.3)] transition-all duration-200"
+                          >
+                            Quiz
                           </button>
                           <button
                             onClick={() => setRenamingId(doc.id)}

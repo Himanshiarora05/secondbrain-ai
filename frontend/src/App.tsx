@@ -14,6 +14,7 @@ import { SplashScreen } from './components/common/SplashScreen'
 const LibraryPage = lazy(() => import('./pages/LibraryPage').then((m) => ({ default: m.LibraryPage })))
 const SummaryPage = lazy(() => import('./pages/SummaryPage').then((m) => ({ default: m.SummaryPage })))
 const FlashcardPage = lazy(() => import('./pages/FlashcardPage').then((m) => ({ default: m.FlashcardPage })))
+const QuizPage = lazy(() => import('./pages/QuizPage').then((m) => ({ default: m.QuizPage })))
 const FlashcardsHubPage = lazy(() => import('./pages/FlashcardsHubPage').then((m) => ({ default: m.FlashcardsHubPage })))
 const DueTodayPage = lazy(() => import('./pages/DueTodayPage').then((m) => ({ default: m.DueTodayPage })))
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })))
@@ -54,6 +55,8 @@ function App() {
             <Route path="library/:documentId/flashcards" element={<FlashcardPage />} />
             <Route path="library/merged/:setId/summary" element={<SummaryPage merged />} />
             <Route path="library/merged/:setId/flashcards" element={<FlashcardPage merged />} />
+            <Route path="library/:documentId/quiz" element={<QuizPage />} />
+            <Route path="library/merged/:setId/quiz" element={<QuizPage merged />} />
             <Route path="flashcards" element={<FlashcardsHubPage />} />
             <Route path="review" element={<DueTodayPage />} />
             <Route path="settings" element={<SettingsPage />} />

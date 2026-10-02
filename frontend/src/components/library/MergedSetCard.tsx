@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BookOpen, Layers, Pencil, Trash2, AlertTriangle } from 'lucide-react'
+import { BookOpen, Layers, ListChecks, Pencil, Trash2, AlertTriangle } from 'lucide-react'
 import type { MergedSet } from '../../types'
 import { DocumentNameEditor } from './DocumentNameEditor'
 import { sourceBadge } from './sourceBadge'
@@ -8,11 +8,12 @@ interface MergedSetCardProps {
   set: MergedSet
   onOpenSummary: (set: MergedSet) => void
   onOpenFlashcards: (set: MergedSet) => void
+  onOpenQuiz: (set: MergedSet) => void
   onRename: (set: MergedSet, name: string) => Promise<void>
   onDelete: (set: MergedSet) => void
 }
 
-export function MergedSetCard({ set, onOpenSummary, onOpenFlashcards, onRename, onDelete }: MergedSetCardProps) {
+export function MergedSetCard({ set, onOpenSummary, onOpenFlashcards, onOpenQuiz, onRename, onDelete }: MergedSetCardProps) {
   const [isRenaming, setIsRenaming] = useState(false)
   const types = [...new Set(set.documents.map((d) => d.source_type || 'pdf'))]
   const stale = set.summary_stale || set.flashcards_stale
@@ -93,6 +94,14 @@ export function MergedSetCard({ set, onOpenSummary, onOpenFlashcards, onRename, 
           >
             <Layers size={13} />
             <span>Flashcards</span>
+          </button>
+          <button
+            onClick={() => onOpenQuiz(set)}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-full bg-[rgba(59,130,246,0.12)] text-[#93C5FD] border border-[rgba(59,130,246,0.25)] hover:bg-gradient-to-r hover:from-[#3B82F6] hover:to-[#1D4ED8] hover:text-white hover:shadow-[0_0_16px_rgba(59,130,246,0.3)] transition-all duration-200"
+            title="Quiz on all the documents"
+          >
+            <ListChecks size={13} />
+            <span>Quiz</span>
           </button>
           <div className="flex items-center gap-2 ml-1">
             <button
