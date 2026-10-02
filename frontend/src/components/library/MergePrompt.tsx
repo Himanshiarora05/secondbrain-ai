@@ -5,11 +5,8 @@ import { createMergedSet } from '../../api/client'
 import type { DocumentItem, MergedSet } from '../../types'
 import { sourceBadge } from './sourceBadge'
 import { LoadingSpinner } from '../ui/LoadingSpinner'
+import { MAX_MERGED, MAX_MERGED_DOC_CHARS, MIN_MERGED, tooLongNote, tooLongToMerge } from './mergeLimits'
 
-// Same limits as the backend (app/routes/merged_sets.py), which also caps the
-// total text (MERGED_MAX_CHARS, default 300,000 characters) and explains when a selection is over it.
-export const MIN_MERGED = 2
-export const MAX_MERGED = 8
 // A merged summary makes roughly one AI call per three chunks, so past this
 // many chunks it takes a lot of calls (and of a free model's daily requests).
 const LARGE_SELECTION_CHUNKS = 150
@@ -33,9 +30,13 @@ export function MergePrompt({ newIds, documents, onDismiss, onCreated }: MergePr
     .map((id) => documents.find((d) => d.id === id))
     .filter((d): d is DocumentItem => d !== undefined)
   const others = documents.filter((d) => !newIds.includes(d.id))
+  // Documents over the per-document limit can't be merged: not pre-selected, not tickable.
+  const tooLongNew = newDocs.filter(tooLongToMerge)
+  const mergeableNew = newDocs.filter((d) => !tooLongToMerge(d))
+  const mergeableOthers = others.filter((d) => !tooLongToMerge(d))
 
   // Selected ids in order: new documents first (upload order), then picks in the order they're ticked.
-  const [selected, setSelected] = useState<number[]>(() => newDocs.map((d) => d.id))
+  const [selected, setSelected] = useState<number[]>(() => mergeableNew.map((d) => d.id))
   // A single upload has to pick something first; a batch of 2–8 can merge straight away.
   const [picking, setPicking] = useState(false)
   const [filter, setFilter] = useState('')
@@ -49,6 +50,8 @@ export function MergePrompt({ newIds, documents, onDismiss, onCreated }: MergePr
   const canCreate = count >= MIN_MERGED && count <= MAX_MERGED && !isCreating
 
   const toggle = (id: number) => {
+    const doc = byId.get(id)
+    if (doc && tooLongToMerge(doc)) return
     setError(null)
     setSelected((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : prev.length >= MAX_MERGED ? prev : [...prev, id]
@@ -71,7 +74,41 @@ export function MergePrompt({ newIds, documents, onDismiss, onCreated }: MergePr
   }
 
   const newLabel =
-    newDocs.length === 1 ? <span className="text-[#E9D5FF]">{newDocs[0].filename}</span> : `these ${newDocs.length} documents`
+    mergeableNew.length === 1 ? (
+      <span className="text-[#E9D5FF]">{mergeableNew[0].filename}</span>
+    ) : (
+      `these ${mergeableNew.length} documents`
+    )
+  // Why some new documents aren't selected (or why there's nothing to merge).
+  const limitText = MAX_MERGED_DOC_CHARS.toLocaleString()
+  const tooLongMessage =
+    tooLongNew.length === 0 ? null : tooLongNew.length === 1 ? (
+      <>
+        <span className="text-[#E9D5FF]">{tooLongNew[0].filename}</span> has{' '}
+        {(tooLongNew[0].char_count ?? 0).toLocaleString()} characters of text; a document in a merged set can have at
+        most {limitText}. Study it on its own.
+      </>
+    ) : (
+      <>
+        {tooLongNew.map((d) => d.filename).join(', ')} each have more than {limitText} characters of text, the most a
+        document in a merged set can have. Study them on their own.
+      </>
+    )
+
+  // Nothing left to merge: every new document is too long, or there's nothing it can go with.
+  if (!result && (mergeableNew.length === 0 || mergeableNew.length + mergeableOthers.length < MIN_MERGED)) {
+    return (
+      <Panel onDismiss={onDismiss} label="Can't merge">
+        <p className="text-sm font-semibold text-white">
+          {tooLongNew.length > 0 ? 'Too long for a merged set' : 'Nothing to merge with yet'}
+        </p>
+        <p className="text-xs text-[#DDD6FE] mt-1">
+          {tooLongMessage ??
+            `Your other documents each have more than ${limitText} characters of text, the most a document in a merged set can have.`}
+        </p>
+      </Panel>
+    )
+  }
 
   if (result) {
     return (
@@ -103,11 +140,17 @@ export function MergePrompt({ newIds, documents, onDismiss, onCreated }: MergePr
   return (
     <Panel onDismiss={onDismiss} label="Merge into a merged set">
       <p className="text-sm font-semibold text-white">
-        Merge {newLabel} {others.length > 0 ? 'with other documents ' : ''}into a merged set?
+        Merge {newLabel} {mergeableOthers.length > 0 ? 'with other documents ' : ''}into a merged set?
       </p>
       <p className="text-xs text-[#DDD6FE] mt-1">
         You'll get one summary and flashcard deck from all of them; each document keeps its own.
       </p>
+      {tooLongMessage && (
+        <p className="mt-2 flex items-start gap-1.5 text-xs text-[#FBBF24]">
+          <AlertTriangle size={13} className="flex-shrink-0 mt-px" aria-hidden="true" />
+          <span>{tooLongMessage}</span>
+        </p>
+      )}
 
       {picking && (
         <div className="mt-3">
@@ -128,19 +171,22 @@ export function MergePrompt({ newIds, documents, onDismiss, onCreated }: MergePr
             {listed.map((d) => {
               const badge = sourceBadge(d.source_type, 12)
               const checked = selected.includes(d.id)
+              const tooLong = tooLongToMerge(d)
               const full = !checked && count >= MAX_MERGED
               return (
                 <li key={d.id}>
                   <label
+                    title={tooLong ? tooLongNote(d) : undefined}
                     className={`flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs transition-colors ${
-                      full ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:bg-[rgba(255,255,255,0.05)]'
+                      full || tooLong ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:bg-[rgba(255,255,255,0.05)]'
                     } ${checked ? 'bg-[rgba(167,139,250,0.12)]' : ''}`}
                   >
                     <input
                       type="checkbox"
                       checked={checked}
-                      disabled={full || isCreating}
+                      disabled={full || tooLong || isCreating}
                       onChange={() => toggle(d.id)}
+                      aria-describedby={tooLong ? `too-long-${d.id}` : undefined}
                       className="accent-[#8B5CF6] flex-shrink-0"
                     />
                     <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold flex-shrink-0 ${badge.style}`}>
@@ -152,7 +198,13 @@ export function MergePrompt({ newIds, documents, onDismiss, onCreated }: MergePr
                     {newIds.includes(d.id) && (
                       <span className="text-[10px] font-semibold text-[#C4B5FD] flex-shrink-0">New</span>
                     )}
-                    <span className="text-[10px] text-[#71717A] font-mono flex-shrink-0">{d.total_chunks} chunks</span>
+                    {tooLong ? (
+                      <span id={`too-long-${d.id}`} className="text-[10px] font-semibold text-[#FBBF24] flex-shrink-0">
+                        Too long to merge
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-[#71717A] font-mono flex-shrink-0">{d.total_chunks} chunks</span>
+                    )}
                   </label>
                 </li>
               )
@@ -187,7 +239,7 @@ export function MergePrompt({ newIds, documents, onDismiss, onCreated }: MergePr
         >
           Not now
         </button>
-        {!picking && (others.length > 0 || count > MAX_MERGED) && (
+        {!picking && (mergeableOthers.length > 0 || count > MAX_MERGED) && (
           <button
             onClick={() => setPicking(true)}
             className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition-all duration-200 ${
@@ -196,7 +248,7 @@ export function MergePrompt({ newIds, documents, onDismiss, onCreated }: MergePr
                 : 'text-white bg-gradient-to-r from-[#8B5CF6] to-[#6D28D9] shadow-[0_0_20px_rgba(139,92,246,0.35)] hover:brightness-110'
             }`}
           >
-            {newDocs.length > 1 && count <= MAX_MERGED ? 'Add other documents' : 'Choose documents'}
+            {mergeableNew.length > 1 && count <= MAX_MERGED ? 'Add other documents' : 'Choose documents'}
           </button>
         )}
         {(picking || count >= MIN_MERGED) && (

@@ -30,6 +30,8 @@ export interface DocumentItem {
   file_id: string
   filename: string
   total_chunks: number
+  // Characters of extracted text; documents over the merged-set limit can't be merged.
+  char_count?: number
   source_type?: SourceType
   source_url?: string
 }

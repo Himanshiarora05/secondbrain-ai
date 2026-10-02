@@ -15,6 +15,8 @@ interface DocumentCardProps {
   selectable?: boolean
   selected?: boolean
   onToggleSelect?: () => void
+  // Set when the card can't be picked (e.g. too long to merge): shown on the card, which ignores clicks.
+  unselectableReason?: string
 }
 
 export function DocumentCard({
@@ -27,18 +29,23 @@ export function DocumentCard({
   selectable = false,
   selected = false,
   onToggleSelect,
+  unselectableReason,
 }: DocumentCardProps) {
   const [isRenaming, setIsRenaming] = useState(false)
+  const blocked = selectable && !!unselectableReason
+  const toggle = blocked ? undefined : onToggleSelect
   const selectProps = selectable
     ? {
         role: 'checkbox',
         'aria-checked': selected,
-        'aria-label': `Select ${document.filename}`,
+        'aria-disabled': blocked || undefined,
+        'aria-label': blocked ? `${document.filename}: ${unselectableReason}` : `Select ${document.filename}`,
+        title: blocked ? unselectableReason : undefined,
         tabIndex: 0,
         onKeyDown: (e: React.KeyboardEvent) => {
           if (e.key === ' ' || e.key === 'Enter') {
             e.preventDefault()
-            onToggleSelect?.()
+            toggle?.()
           }
         },
       }
@@ -100,15 +107,17 @@ export function DocumentCard({
 
   return (
     <div
-      onClick={selectable ? onToggleSelect : isRenaming ? undefined : onClick}
+      onClick={selectable ? toggle : isRenaming ? undefined : onClick}
       {...selectProps}
       style={{
         background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.015) 100%)',
       }}
-      className={`group @container p-6 rounded-2xl backdrop-blur-xl border hover:shadow-[0_0_28px_rgba(59,130,246,0.18)] transition-all duration-300 cursor-pointer relative overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B82F6] ${
-        selected
-          ? 'border-[rgba(59,130,246,0.7)] bg-[rgba(59,130,246,0.08)] shadow-[0_0_24px_rgba(59,130,246,0.2)]'
-          : 'border-[rgba(255,255,255,0.08)] hover:border-[rgba(59,130,246,0.35)]'
+      className={`group @container p-6 rounded-2xl backdrop-blur-xl border transition-all duration-300 relative overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3B82F6] ${
+        blocked
+          ? 'opacity-50 cursor-not-allowed border-[rgba(255,255,255,0.08)]'
+          : selected
+            ? 'cursor-pointer hover:shadow-[0_0_28px_rgba(59,130,246,0.18)] border-[rgba(59,130,246,0.7)] bg-[rgba(59,130,246,0.08)] shadow-[0_0_24px_rgba(59,130,246,0.2)]'
+            : 'cursor-pointer hover:shadow-[0_0_28px_rgba(59,130,246,0.18)] border-[rgba(255,255,255,0.08)] hover:border-[rgba(59,130,246,0.35)]'
       }`}
     >
       {/* Layout follows the card's own width, not the window's: in the two-column
@@ -161,6 +170,7 @@ export function DocumentCard({
               </span>
             )}
           </div>
+          {blocked && <p className="mt-1.5 text-[11px] font-medium text-[#FBBF24]">{unselectableReason}</p>}
         </div>
       </div>
 
