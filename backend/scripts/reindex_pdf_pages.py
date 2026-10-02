@@ -54,6 +54,9 @@ def plan_document(db, doc, force=False, upload_dir=UPLOAD_DIR):
     report = {"id": doc.id, "name": doc.filename, "old_chunks": len(old)}
     if old and all(c.page_start is not None for c in old) and not force:
         return {**report, "action": "skip", "reason": "already has page numbers"}, None
+    # Its scanned pages were read by OCR at upload; re-extracting would drop that text.
+    if '"ocr_pages"' in (getattr(doc, "metadata_json", None) or ""):
+        return {**report, "action": "skip", "reason": "has OCR pages"}, None
 
     path = Path(upload_dir) / f"{doc.file_id}.pdf"
     if not path.exists():

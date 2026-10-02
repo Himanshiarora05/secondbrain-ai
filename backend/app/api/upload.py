@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, HttpUrl
 from sqlalchemy.orm import Session
 
@@ -24,6 +25,9 @@ from app.services.web.web_service import WebService, url_key
 from app.services.web.errors import WebPageError
 from app.services.rag.rag_service import RAGService
 from app.services.embedding_service import get_embeddings
+from app.services.ai.summary_service import AIGenerationError
+from app.services.ocr import ocr_service
+from app.services.ocr.ocr_service import ImageFileError, MAX_OCR_PAGES, TOO_MANY_PAGES_MESSAGE
 
 logger = logging.getLogger(__name__)
 
@@ -56,25 +60,44 @@ OLE_DOCX_MESSAGE = (
 )
 
 
+# Scanned pages went through text recognition (OCR) and it found nothing.
 SCANNED_PDF_MESSAGE = (
-    "This PDF is scanned images, so there's no text to read. Upload a version with selectable "
-    "text, or run it through OCR (text recognition) first."
+    "No text could be recognised in this PDF: its pages are scanned images and text recognition "
+    "found no text on them. Check that the scan is readable, or upload a version with selectable text."
 )
+NO_TEXT_IN_IMAGES_MESSAGE = (
+    "No text could be recognised in these images. Use clear, well-lit photos or screenshots of the notes."
+)
+
+IMAGE_EXTENSIONS = {".jpg": "jpg", ".jpeg": "jpg", ".png": "png"}
+# All the images of one upload together (each is also at most MAX_FILE_SIZE).
+MAX_IMAGES_TOTAL_SIZE = 50 * 1024 * 1024  # 50MB
 
 
 @contextmanager
-def _removed_on_failure(file_path: Path):
+def _removed_on_failure(*file_paths: Path):
     """Delete a saved upload if anything after saving it fails (unreadable text,
-    no chunks, embeddings, storage, a dropped connection), so a failed upload
+    no chunks, OCR, embeddings, storage, a dropped connection), so a failed upload
     doesn't leave an orphaned file in uploads/ that no document points to."""
     try:
         yield
     except BaseException:
-        try:
-            file_path.unlink(missing_ok=True)
-        except OSError as e:
-            logger.warning(f"Could not remove failed upload {file_path}: {e}")
+        for file_path in file_paths:
+            try:
+                file_path.unlink(missing_ok=True)
+            except OSError as e:
+                logger.warning(f"Could not remove failed upload {file_path}: {e}")
         raise
+
+
+def _too_many_pages(count: int) -> HTTPException:
+    return HTTPException(status_code=400, detail=TOO_MANY_PAGES_MESSAGE.format(limit=MAX_OCR_PAGES, count=count))
+
+
+def _recognise_pdf_pages(content: bytes, page_numbers: List[int]) -> List[str]:
+    """OCR text of the given PDF pages (1-based), in order. Blocking: run in a worker thread."""
+    images = PDFService.render_pages(content, page_numbers, dpi=ocr_service.PDF_RENDER_DPI)
+    return ocr_service.ocr_images([ocr_service.prepare_image(img) for img in images], page_numbers)
 
 
 class YouTubeUploadRequest(BaseModel):
@@ -222,10 +245,24 @@ async def upload_pdf(
             logger.error(f"Failed to extract PDF text from '{file.filename}': {e}", exc_info=True)
             raise HTTPException(status_code=400, detail="Could not extract text from this PDF file, please try another file")
 
+        # Pages without a text layer (scanned) are read by OCR, in place, so
+        # their text keeps its page number for citations.
+        scanned = PDFService.scanned_pages(content)
+        if len(scanned) > MAX_OCR_PAGES:
+            raise _too_many_pages(len(scanned))
+        if scanned:
+            logger.info(f"Running OCR on {len(scanned)} scanned page(s) of '{file.filename}' with {ocr_service.OCR_MODEL}")
+            try:
+                recognised = await run_in_threadpool(_recognise_pdf_pages, content, scanned)
+            except AIGenerationError as e:
+                raise HTTPException(status_code=502, detail=f"Text recognition failed: {e}")
+            for number, page_text in zip(scanned, recognised):
+                pages[number - 1] = f"{page_text}\n" if page_text else ""
+
         text = "".join(pages)
         if not text.strip():
-            if PDFService.has_images(content):
-                logger.info(f"Rejected scanned PDF '{file.filename}' ({len(pages)} pages, no text layer)")
+            if scanned:
+                logger.info(f"OCR found no text in scanned PDF '{file.filename}' ({len(pages)} pages)")
                 raise HTTPException(status_code=400, detail=SCANNED_PDF_MESSAGE)
             raise HTTPException(status_code=400, detail="No readable text found in this PDF file")
 
@@ -242,6 +279,84 @@ async def upload_pdf(
             chunks=[c["text"] for c in chunks],
             source_type="pdf",
             chunk_pages=[(c["page_start"], c["page_end"]) for c in chunks],
+            metadata_json=json.dumps({"ocr_pages": scanned, "ocr_model": ocr_service.OCR_MODEL}) if scanned else None,
+        )
+
+
+def _images_title(names: List[str]) -> str:
+    if len(names) == 1:
+        return names[0]
+    return f"{names[0]} + {len(names) - 1} more image{'s' if len(names) > 2 else ''}"
+
+
+@router.post("/images")
+async def upload_images(
+    files: List[UploadFile] = File(...), db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Photos or screenshots of notes (JPEG/PNG), read by OCR into one document.
+
+    Each image is one page, in the order sent, so a point from the second
+    image cites "p. 2".
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="Please choose at least one image")
+    if len(files) > MAX_OCR_PAGES:
+        raise _too_many_pages(len(files))
+
+    names, exts, contents = [], [], []
+    for upload in files:
+        name = upload.filename or "image"
+        ext = IMAGE_EXTENSIONS.get(Path(name).suffix.lower())
+        if not ext:
+            raise HTTPException(status_code=400, detail=f'"{name}" isn\'t a JPEG or PNG image')
+        data = await upload.read()
+        if len(data) > MAX_FILE_SIZE:
+            raise HTTPException(status_code=400, detail=f'"{name}" is too large (maximum 20 MB per image)')
+        names.append(name)
+        exts.append(ext)
+        contents.append(data)
+    if sum(len(c) for c in contents) > MAX_IMAGES_TOTAL_SIZE:
+        raise HTTPException(status_code=400, detail="These images are too large together (maximum 50 MB per upload)")
+
+    prepared = []
+    for name, data in zip(names, contents):
+        try:
+            prepared.append(await run_in_threadpool(ocr_service.prepare_image, data))
+        except ImageFileError as e:
+            logger.info(f"Unreadable image '{name}': {e}")
+            raise HTTPException(status_code=400, detail=f'"{name}" can\'t be read as a JPEG or PNG image')
+
+    file_id = str(uuid.uuid4())
+    # uploads/{file_id}.{n}.{ext}: deleting the document removes "{file_id}.*".
+    file_paths = [UPLOAD_DIR / f"{file_id}.{n}.{ext}" for n, ext in enumerate(exts, start=1)]
+    with _removed_on_failure(*file_paths):
+        for path, data in zip(file_paths, contents):
+            with open(path, "wb") as f:
+                f.write(data)
+
+        logger.info(f"Running OCR on {len(prepared)} image(s) with {ocr_service.OCR_MODEL}")
+        try:
+            pages = await run_in_threadpool(ocr_service.ocr_images, prepared)
+        except AIGenerationError as e:
+            raise HTTPException(status_code=502, detail=f"Text recognition failed: {e}")
+
+        if not any(p.strip() for p in pages):
+            raise HTTPException(status_code=400, detail=NO_TEXT_IN_IMAGES_MESSAGE)
+
+        chunks = RAGService.chunk_pages(pages)
+        if not chunks:
+            raise HTTPException(status_code=400, detail="No usable text chunks after processing")
+
+        return _store_document_and_chunks(
+            user_id=user.id,
+            db=db,
+            file_id=file_id,
+            filename=_images_title(names),
+            content="\n\n".join(p for p in pages if p.strip()),
+            chunks=[c["text"] for c in chunks],
+            source_type="image",
+            chunk_pages=[(c["page_start"], c["page_end"]) for c in chunks],
+            metadata_json=json.dumps({"images": names, "ocr_model": ocr_service.OCR_MODEL}),
         )
 
 

@@ -111,6 +111,30 @@ export async function uploadDOCX(
   return response.json()
 }
 
+// Photos or screenshots of notes (JPEG/PNG): all of them become one document,
+// read by OCR, each image one page in the order given.
+export async function uploadImages(
+  files: File[]
+): Promise<UploadResult> {
+  const formData = new FormData()
+  for (const file of files) formData.append('files', file)
+
+  const response = await apiFetch(
+    `${API_BASE_URL}/v1/upload/images`,
+    {
+      method: 'POST',
+      body: formData,
+    }
+  )
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}))
+    throw new Error(typeof errData.detail === 'string' ? errData.detail : `Upload failed: ${response.status}`)
+  }
+
+  return response.json()
+}
+
 export async function uploadYouTube(
   url: string
 ): Promise<UploadResult> {

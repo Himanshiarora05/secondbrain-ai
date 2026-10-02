@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FileText, BookOpen, Layers, Presentation, FileEdit, Video, Globe, Trash2, Pencil, Check } from 'lucide-react'
+import { FileText, BookOpen, Layers, Presentation, FileEdit, Video, Globe, Image as ImageIcon, Trash2, Pencil, Check } from 'lucide-react'
 import type { DocumentItem } from '../../types'
 import { DocumentNameEditor } from './DocumentNameEditor'
 
@@ -81,6 +81,13 @@ export function DocumentCard({
           bgColor: 'bg-[rgba(34,211,238,0.15)]',
           badgeText: 'WEB',
           badgeStyle: 'text-[#22D3EE] bg-[rgba(34,211,238,0.2)] border-[rgba(34,211,238,0.3)]',
+        }
+      case 'image':
+        return {
+          icon: <ImageIcon size={22} className="text-[#34D399]" />,
+          bgColor: 'bg-[rgba(52,211,153,0.15)]',
+          badgeText: 'IMAGE',
+          badgeStyle: 'text-[#34D399] bg-[rgba(52,211,153,0.2)] border-[rgba(52,211,153,0.3)]',
         }
       case 'pdf':
       default:

@@ -220,6 +220,7 @@ def build_chunk_citations(
                across chunks so a chunk that starts mid-slide is still numbered
     - pdf:     ("p. 12" / "pp. 12–13", None) from the stored page range;
                None for PDFs uploaded before pages were recorded
+    - image:   the same, each uploaded image being one page
     - docx and anything else: None (no location is stored)
     """
     if source_type == "youtube" and source_url:
@@ -229,7 +230,7 @@ def build_chunk_citations(
             for _, start in chunks
         ]
 
-    if source_type == "pdf" and pages:
+    if source_type in ("pdf", "image") and pages:
         labels = [format_pages(start, end) for start, end in pages]
         return [(label, None) if label else None for label in labels]
 

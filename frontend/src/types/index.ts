@@ -23,7 +23,7 @@ export interface SearchResult {
 
 // ─── Documents ───
 
-export type SourceType = 'pdf' | 'pptx' | 'docx' | 'youtube' | 'website'
+export type SourceType = 'pdf' | 'pptx' | 'docx' | 'youtube' | 'website' | 'image'
 
 export interface DocumentItem {
   id: number

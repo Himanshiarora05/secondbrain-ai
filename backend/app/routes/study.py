@@ -65,10 +65,10 @@ def create_or_regenerate_summary(
             if c.content and c.content.strip()
         ]
 
-    # PDFs (page ranges) and PowerPoint decks (slide markers) cite "(p. 12)" /
-    # "(Slide 4)" from their stored chunks, like YouTube timestamps.
+    # PDFs and images (page ranges) and PowerPoint decks (slide markers) cite
+    # "(p. 12)" / "(Slide 4)" from their stored chunks, like YouTube timestamps.
     cited_chunks, citations = [], []
-    if doc.source_type in ("pdf", "pptx"):
+    if doc.source_type in ("pdf", "image", "pptx"):
         rows = [
             c for c in db.query(Chunk)
             .filter(Chunk.document_id == doc.id)

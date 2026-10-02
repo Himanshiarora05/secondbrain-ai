@@ -5,6 +5,7 @@ import {
   uploadPDF,
   uploadPPTX,
   uploadDOCX,
+  uploadImages,
   uploadYouTube,
   uploadWebsite,
   getDocuments,
@@ -28,9 +29,16 @@ const LEGACY_PPT_MESSAGE =
 const LEGACY_DOC_MESSAGE =
   "Old Word files (.doc) aren't supported. Open the file in Word (or Google Docs / LibreOffice), choose File → Save As → .docx, and upload that."
 
-type FileKind = 'pdf' | 'pptx' | 'docx'
+// Same limit as MAX_OCR_PAGES in the backend (ocr_service.py): each image is one OCR call.
+const MAX_IMAGES = 20
 
-// Which upload endpoint a file goes to, or why it can't be uploaded.
+type FileKind = 'pdf' | 'pptx' | 'docx' | 'images'
+
+function isImage(file: File): boolean {
+  return /\.(jpe?g|png)$/i.test(file.name) || file.type === 'image/jpeg' || file.type === 'image/png'
+}
+
+// Which upload endpoint a (non-image) file goes to, or why it can't be uploaded.
 function classifyFile(file: File): { kind: FileKind } | { error: string } {
   const filename = file.name.toLowerCase()
   if (filename.endsWith('.ppt')) return { error: LEGACY_PPT_MESSAGE }
@@ -38,14 +46,46 @@ function classifyFile(file: File): { kind: FileKind } | { error: string } {
   if (filename.endsWith('.pdf') || file.type === 'application/pdf') return { kind: 'pdf' }
   if (filename.endsWith('.pptx')) return { kind: 'pptx' }
   if (filename.endsWith('.docx')) return { kind: 'docx' }
-  return { error: 'Unsupported file type. Please upload a PDF, PowerPoint (.pptx), or Word (.docx) document.' }
+  return { error: 'Unsupported file type. Please upload a PDF, PowerPoint (.pptx), Word (.docx) or image (JPG, PNG) file.' }
 }
 
-function uploadByKind(kind: FileKind, file: File): Promise<UploadResult> {
-  return kind === 'pdf' ? uploadPDF(file) : kind === 'pptx' ? uploadPPTX(file) : uploadDOCX(file)
+// One document to create: a single file, or every image picked together
+// (one document, each image a page, in the order picked).
+type UploadUnit = { name: string; files: File[] } & ({ kind: FileKind } | { error: string })
+
+function planUploads(files: File[]): UploadUnit[] {
+  const images = files.filter(isImage)
+  const units: UploadUnit[] = []
+  for (const file of files) {
+    if (!isImage(file)) {
+      units.push({ name: file.name, files: [file], ...classifyFile(file) })
+    } else if (file === images[0]) {
+      // The images go where the first one was picked.
+      const name = images.length === 1 ? file.name : `${images.length} images (one document)`
+      units.push(
+        images.length > MAX_IMAGES
+          ? { name, files: images, error: `Text recognition is limited to ${MAX_IMAGES} images per upload. Pick ${MAX_IMAGES} or fewer.` }
+          : { name, files: images, kind: 'images' },
+      )
+    }
+  }
+  return units
 }
 
-// One file of a multi-file upload.
+function uploadUnit(kind: FileKind, files: File[]): Promise<UploadResult> {
+  switch (kind) {
+    case 'images':
+      return uploadImages(files)
+    case 'pptx':
+      return uploadPPTX(files[0])
+    case 'docx':
+      return uploadDOCX(files[0])
+    default:
+      return uploadPDF(files[0])
+  }
+}
+
+// One document of a multi-file upload.
 interface BatchItem {
   name: string
   status: 'waiting' | 'uploading' | 'done' | 'failed' | 'skipped'
@@ -87,6 +127,8 @@ export function UploadZone({ onUploadSuccess, onMergedSetCreated }: UploadZonePr
   const [activeTab, setActiveTab] = useState<'file' | 'youtube' | 'website'>('file')
   const [isDragging, setIsDragging] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
+  // A single upload of images: the progress text says they're being read (OCR is slower).
+  const [readingImages, setReadingImages] = useState(false)
   const [youtubeUrl, setYoutubeUrl] = useState('')
   const [websiteUrl, setWebsiteUrl] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -153,23 +195,21 @@ export function UploadZone({ onUploadSuccess, onMergedSetCreated }: UploadZonePr
   const handleFiles = async (files: File[]) => {
     setBatch(null)
     setMergeOffer(null)
-    if (files.length === 1) {
-      await handleFileUpload(files[0])
+    const units = planUploads(files)
+    if (units.length === 1) {
+      await handleFileUpload(units[0])
     } else {
-      await handleBatchUpload(files)
+      await handleBatchUpload(units)
     }
   }
 
-  // Several files: uploaded one after another (each is CPU-heavy on the
-  // server), each becoming its own document. A failed or skipped file
-  // doesn't stop the rest.
-  const handleBatchUpload = async (files: File[]) => {
+  // Several documents: uploaded one after another (each is CPU-heavy on the
+  // server). A failed or skipped one doesn't stop the rest.
+  const handleBatchUpload = async (units: UploadUnit[]) => {
     if (isUploadingRef.current) return
-    const kinds = files.map(classifyFile)
-    const items: BatchItem[] = files.map((f, i) => {
-      const k = kinds[i]
-      return 'error' in k ? { name: f.name, status: 'skipped', message: k.error } : { name: f.name, status: 'waiting' }
-    })
+    const items: BatchItem[] = units.map((u) =>
+      'error' in u ? { name: u.name, status: 'skipped', message: u.error } : { name: u.name, status: 'waiting' },
+    )
     const update = (i: number, patch: Partial<BatchItem>) => {
       items[i] = { ...items[i], ...patch }
       setBatch([...items])
@@ -182,12 +222,12 @@ export function UploadZone({ onUploadSuccess, onMergedSetCreated }: UploadZonePr
     setBatch([...items])
 
     try {
-      for (let i = 0; i < files.length; i++) {
-        const k = kinds[i]
-        if ('error' in k) continue
+      for (let i = 0; i < units.length; i++) {
+        const u = units[i]
+        if ('error' in u) continue
         update(i, { status: 'uploading' })
         try {
-          const res = await uploadByKind(k.kind, files[i])
+          const res = await uploadUnit(u.kind, u.files)
           update(i, { status: 'done', documentId: res.document_id })
         } catch (err) {
           update(i, { status: 'failed', message: err instanceof Error ? err.message : 'Upload failed' })
@@ -205,21 +245,21 @@ export function UploadZone({ onUploadSuccess, onMergedSetCreated }: UploadZonePr
     }
   }
 
-  const handleFileUpload = async (file: File) => {
+  const handleFileUpload = async (unit: UploadUnit) => {
     if (isUploadingRef.current) return
 
-    const kind = classifyFile(file)
-    if ('error' in kind) {
-      setError(kind.error)
+    if ('error' in unit) {
+      setError(unit.error)
       return
     }
 
     isUploadingRef.current = true
     setError(null)
+    setReadingImages(unit.kind === 'images')
     setIsUploading(true)
 
     try {
-      const res = await uploadByKind(kind.kind, file)
+      const res = await uploadUnit(unit.kind, unit.files)
       onUploadSuccess({ keepOpen: await offerMerge([res.document_id]) })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed')
@@ -348,13 +388,13 @@ export function UploadZone({ onUploadSuccess, onMergedSetCreated }: UploadZonePr
               if (!isUploading) fileInputRef.current?.click()
             }
           }}
-          aria-label="Upload document (PDF, PowerPoint, Word)"
+          aria-label="Upload document (PDF, PowerPoint, Word, images)"
         >
           <input
             type="file"
             multiple
             className="hidden"
-            accept=".pdf,.pptx,.docx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            accept=".pdf,.pptx,.docx,.jpg,.jpeg,.png,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png"
             onChange={handleFileChange}
             ref={fileInputRef}
             disabled={isUploading}
@@ -381,9 +421,13 @@ export function UploadZone({ onUploadSuccess, onMergedSetCreated }: UploadZonePr
           ) : isUploading ? (
             <div className="flex flex-col items-center py-8 animate-fade-in">
               <LoadingSpinner size={40} className="mb-4 text-[#3B82F6]" />
-              <p className="text-white font-semibold text-base">Processing Document...</p>
+              <p className="text-white font-semibold text-base">
+                {readingImages ? 'Reading your images...' : 'Processing Document...'}
+              </p>
               <p className="text-xs text-[#A1A1AA] mt-1.5">
-                Extracting text, creating chunks, and generating dense vector embeddings
+                {readingImages
+                  ? 'Recognising the text in each image with AI. This can take a minute.'
+                  : 'Extracting text, creating chunks, and generating dense vector embeddings'}
               </p>
             </div>
           ) : (
@@ -393,7 +437,7 @@ export function UploadZone({ onUploadSuccess, onMergedSetCreated }: UploadZonePr
               </div>
               <h3 className="text-lg font-bold text-white mb-2 tracking-tight">Drop your study material here, or browse</h3>
               <p className="text-xs text-[#A1A1AA] mb-6 max-w-sm">
-                Supported formats: PDF lecture notes, PowerPoint presentations, and Word files. You can pick several files at once.
+                Supported formats: PDF lecture notes, PowerPoint presentations, Word files, and photos or screenshots of notes. You can pick several files at once.
               </p>
 
               <div className="flex flex-wrap items-center justify-center gap-2.5 mb-4">
@@ -406,8 +450,15 @@ export function UploadZone({ onUploadSuccess, onMergedSetCreated }: UploadZonePr
                 <span className="px-3 py-1 text-xs font-bold uppercase tracking-wider rounded-lg bg-[rgba(96,165,250,0.2)] text-[#60A5FA] border border-[rgba(96,165,250,0.3)] shadow-sm">
                   DOCX
                 </span>
+                <span className="px-3 py-1 text-xs font-bold uppercase tracking-wider rounded-lg bg-[rgba(52,211,153,0.2)] text-[#34D399] border border-[rgba(52,211,153,0.3)] shadow-sm">
+                  JPG / PNG
+                </span>
               </div>
 
+              <p className="text-xs text-[#A1A1AA] mb-3 max-w-sm">
+                Images picked together become one document, one page per image. Images and scanned PDF pages are
+                read with AI text recognition, up to {MAX_IMAGES} pages per upload.
+              </p>
               <p className="text-[11px] text-[#5C5C6E] font-mono">Maximum file size: 20 MB</p>
             </div>
           )}
