@@ -12,6 +12,7 @@ from typing import Literal, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.database.db import get_db
@@ -39,7 +40,7 @@ def schedule_dict(card: Union[Flashcard, MergedFlashcard]) -> dict:
         "ease": card.ease,
         "interval_days": card.interval_days,
         "repetitions": card.repetitions,
-        # Null until the card is first rated.
+        # Null until the card is first rated; such a new card counts as due.
         "due_date": card.due_date.isoformat() if card.due_date else None,
         "last_reviewed_at": card.last_reviewed_at.isoformat() if card.last_reviewed_at else None,
     }
@@ -89,7 +90,7 @@ def _due_document_cards(db: Session, user: User, today: date):
     return (
         db.query(Flashcard, Document.id, Document.filename, Document.source_type)
         .join(Document, Document.id == Flashcard.document_id)
-        .filter(Document.user_id == user.id, Flashcard.due_date.isnot(None), Flashcard.due_date <= today)
+        .filter(Document.user_id == user.id, or_(Flashcard.due_date.is_(None), Flashcard.due_date <= today))
     )
 
 
@@ -97,7 +98,7 @@ def _due_merged_cards(db: Session, user: User, today: date):
     return (
         db.query(MergedFlashcard, MergedSet.id, MergedSet.name)
         .join(MergedSet, MergedSet.id == MergedFlashcard.set_id)
-        .filter(MergedSet.user_id == user.id, MergedFlashcard.due_date.isnot(None), MergedFlashcard.due_date <= today)
+        .filter(MergedSet.user_id == user.id, or_(MergedFlashcard.due_date.is_(None), MergedFlashcard.due_date <= today))
     )
 
 
@@ -107,7 +108,7 @@ def due_cards(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Every card due on or before today, oldest due date first, with the deck it belongs to."""
+    """Every card due on or before today, oldest due date first, then never-rated cards, with their deck."""
     day = _today(today)
     cards = []
     for card, doc_id, filename, source_type in _due_document_cards(db, user, day).all():
@@ -124,7 +125,8 @@ def due_cards(
             "deck_id": set_id, "deck_name": name, "deck_source_type": "merged",
             **schedule_dict(card),
         })
-    cards.sort(key=lambda c: (c["due_date"], c["kind"], c["deck_id"], c["id"]))
+    # Reviews already on the schedule come before new cards.
+    cards.sort(key=lambda c: (c["due_date"] is None, c["due_date"] or "", c["kind"], c["deck_id"], c["id"]))
     return {"today": day.isoformat(), "count": len(cards), "cards": cards}
 
 

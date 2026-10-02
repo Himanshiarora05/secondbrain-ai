@@ -108,7 +108,7 @@ export function DueTodayPage() {
         <p className="text-[#A1A1AA] text-sm max-w-xl">
           Cards from all your decks that are due for review. Rate each one: <span className="text-[#F87171]">Again</span>{' '}
           brings it back today, <span className="text-[#93C5FD]">Good</span> and <span className="text-[#34D399]">Easy</span>{' '}
-          space it out further each time. Cards join the schedule the first time you rate them in a deck.
+          space it out further each time. Cards you haven't rated yet are included as new cards.
         </p>
       </div>
 
@@ -128,7 +128,7 @@ export function DueTodayPage() {
           description={
             reviewed > 0
               ? `You reviewed ${reviewed} ${reviewed === 1 ? 'card' : 'cards'}. Come back when the next ones are due.`
-              : 'Study a deck and rate its cards to put them on your review schedule.'
+              : 'Generate flashcards for a document or merged set to start reviewing.'
           }
           action={
             <Link

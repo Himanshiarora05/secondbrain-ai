@@ -8,8 +8,8 @@ from app.services.spaced_repetition import DEFAULT_EASE
 class ReviewScheduleMixin:
     """SM-2 review state, shared by document cards and merged-set cards.
 
-    A card nobody has rated yet has due_date null and isn't due; the first
-    rating in a deck puts it on the schedule (app/services/spaced_repetition.py).
+    A card nobody has rated yet has due_date null and counts as due (a new
+    card); its first rating puts it on the schedule (app/services/spaced_repetition.py).
     Regenerating a deck replaces its cards, so their schedule starts over.
     """
     ease = Column(Float, default=DEFAULT_EASE, nullable=False)

@@ -185,7 +185,7 @@ export function FlashcardPage({ merged = false }: { merged?: boolean }) {
   }
 
   const today = localToday()
-  const dueInDeck = cards.filter((c) => c.due_date && c.due_date <= today).length
+  const dueInDeck = cards.filter((c) => !c.due_date || c.due_date <= today).length
 
   const handleShuffle = () => {
     if (cards.length <= 1) return
