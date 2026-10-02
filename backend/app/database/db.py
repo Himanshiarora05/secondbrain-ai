@@ -97,6 +97,17 @@ def init_db():
                 "ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS source_url VARCHAR;"
             )
         )
+        # Spaced repetition (SM-2) state on both kinds of card; see ReviewScheduleMixin.
+        for table in ("flashcards", "merged_flashcards"):
+            for column in (
+                "ease DOUBLE PRECISION DEFAULT 2.5 NOT NULL",
+                "interval_days INTEGER DEFAULT 0 NOT NULL",
+                "repetitions INTEGER DEFAULT 0 NOT NULL",
+                "due_date DATE",
+                "last_reviewed_at TIMESTAMP",
+            ):
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column};"))
+            conn.execute(text(f"CREATE INDEX IF NOT EXISTS ix_{table}_due_date ON {table} (due_date);"))
         # Ownership (user accounts). Existing rows stay null until
         # scripts/assign_documents_to_user.py assigns them.
         for table in ("documents", "merged_sets"):

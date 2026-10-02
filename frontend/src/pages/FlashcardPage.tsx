@@ -9,9 +9,6 @@ import {
   RefreshCw,
   Layers,
   AlertCircle,
-  HelpCircle,
-  CheckCircle2,
-  ExternalLink,
 } from 'lucide-react'
 import {
   getDocuments,
@@ -20,11 +17,16 @@ import {
   getMergedSet,
   getMergedFlashcards,
   generateMergedFlashcards,
+  localToday,
+  reviewCard,
 } from '../api/client'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { sourceBadge, MERGED_BADGE_STYLE } from '../components/library/sourceBadge'
 import { MergedSetMembers, MergedSetNotices } from '../components/library/MergedSetHeader'
-import type { DocumentItem, Flashcard, MergedSet } from '../types'
+import { FlipCard } from '../components/library/FlipCard'
+import { ReviewButtons } from '../components/library/ReviewButtons'
+import { GRADE_KEYS, dueLabel, nextReviewText } from '../components/library/reviewSchedule'
+import type { DocumentItem, Flashcard, MergedSet, ReviewGrade } from '../types'
 
 // With `merged`, the page shows a merged set's deck (route /library/merged/:setId/flashcards).
 export function FlashcardPage({ merged = false }: { merged?: boolean }) {
@@ -43,6 +45,9 @@ export function FlashcardPage({ merged = false }: { merged?: boolean }) {
   const [isLoading, setIsLoading] = useState(true)
   const [isRegenerating, setIsRegenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isRating, setIsRating] = useState(false)
+  // What the last rating did ("Next review in 6 days"), or why it failed.
+  const [reviewNote, setReviewNote] = useState<{ text: string; error?: boolean } | null>(null)
   const [, startTransition] = useTransition()
 
   // Load document (or merged set) and flashcards
@@ -134,15 +139,19 @@ export function FlashcardPage({ merged = false }: { merged?: boolean }) {
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault()
         handlePrev()
+      } else if (isFlipped && !isRating && GRADE_KEYS[e.key]) {
+        e.preventDefault()
+        handleRate(GRADE_KEYS[e.key])
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [cards.length, currentIndex, isLoading])
+  }, [cards, currentIndex, isLoading, isFlipped, isRating])
 
   const handleNext = () => {
     if (currentIndex < cards.length - 1) {
       setIsFlipped(false)
+      setReviewNote(null)
       setCurrentIndex((prev) => prev + 1)
     }
   }
@@ -150,13 +159,38 @@ export function FlashcardPage({ merged = false }: { merged?: boolean }) {
   const handlePrev = () => {
     if (currentIndex > 0) {
       setIsFlipped(false)
+      setReviewNote(null)
       setCurrentIndex((prev) => prev - 1)
     }
   }
 
+  // Saves the rating, then moves on to the next card (or stays on the last one).
+  const handleRate = async (grade: ReviewGrade) => {
+    const card = cards[currentIndex]
+    if (!card || isRating) return
+    setIsRating(true)
+    try {
+      const schedule = await reviewCard(merged ? 'merged' : 'document', card.id, grade)
+      setCards((prev) => prev.map((c) => (c.id === card.id ? { ...c, ...schedule } : c)))
+      const isLast = currentIndex === cards.length - 1
+      setReviewNote({ text: isLast ? `${nextReviewText(schedule)} · Last card in the deck` : nextReviewText(schedule) })
+      setIsFlipped(false)
+      if (!isLast) setCurrentIndex((prev) => prev + 1)
+    } catch (err: any) {
+      setReviewNote({ text: err.message || 'Failed to save your answer', error: true })
+      setIsFlipped(false)
+    } finally {
+      setIsRating(false)
+    }
+  }
+
+  const today = localToday()
+  const dueInDeck = cards.filter((c) => c.due_date && c.due_date <= today).length
+
   const handleShuffle = () => {
     if (cards.length <= 1) return
     setIsFlipped(false)
+    setReviewNote(null)
     const shuffled = [...cards].sort(() => Math.random() - 0.5)
     setCards(shuffled)
     setCurrentIndex(0)
@@ -167,6 +201,7 @@ export function FlashcardPage({ merged = false }: { merged?: boolean }) {
     setIsRegenerating(true)
     setError(null)
     setIsFlipped(false)
+    setReviewNote(null)
 
     try {
       if (merged) {
@@ -238,6 +273,7 @@ export function FlashcardPage({ merged = false }: { merged?: boolean }) {
             {cards.length > 0 && !isLoading && (
               <p className="text-xs text-[#A1A1AA] mt-1 font-mono">
                 {cards.length} revision cards ready
+                {dueInDeck > 0 && <span className="text-[#FBBF24]"> · {dueInDeck} due today</span>}
               </p>
             )}
           </div>
@@ -259,7 +295,7 @@ export function FlashcardPage({ merged = false }: { merged?: boolean }) {
               onClick={handleRegenerate}
               disabled={isRegenerating || cannotRegenerate}
               className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold rounded-xl bg-gradient-to-r from-[#3B82F6] to-[#1D4ED8] hover:brightness-110 text-white transition-all duration-200 shadow-[0_0_20px_rgba(59,130,246,0.35)] disabled:opacity-50 disabled:cursor-not-allowed"
-              title={cannotRegenerate ? 'A merged set needs at least 2 documents' : 'Regenerate cards with AI'}
+              title={cannotRegenerate ? 'A merged set needs at least 2 documents' : 'Regenerate cards with AI (new cards start a fresh review schedule)'}
             >
               <RefreshCw size={14} className={isRegenerating ? 'animate-spin' : ''} />
               <span>{isRegenerating ? 'Regenerating...' : 'Regenerate'}</span>
@@ -332,87 +368,29 @@ export function FlashcardPage({ merged = false }: { merged?: boolean }) {
               </span>
             </div>
 
-            {/* 3D Flip Card */}
-            <div
-              className="w-full h-84 cursor-pointer [perspective:1000px] select-none group"
-              onClick={() => setIsFlipped((prev) => !prev)}
-            >
-              <div
-                className={`relative w-full h-full duration-500 [transform-style:preserve-3d] transition-transform rounded-3xl ${
-                  isFlipped ? '[transform:rotateY(180deg)]' : ''
-                }`}
-              >
-                {/* Front face: Question (Frosted Glass Floating Card) */}
-                <div className="absolute inset-0 w-full h-full [backface-visibility:hidden] bg-[rgba(255,255,255,0.05)] backdrop-blur-2xl border border-[rgba(255,255,255,0.12)] group-hover:bg-[rgba(255,255,255,0.08)] group-hover:border-[rgba(59,130,246,0.4)] group-hover:shadow-[0_0_35px_rgba(59,130,246,0.18)] rounded-3xl p-5 sm:p-8 md:p-10 flex flex-col justify-between shadow-[0_12px_40px_rgba(0,0,0,0.6)] transition-all duration-200">
-                  <div className="flex items-center justify-between">
-                    <span className="inline-flex items-center gap-1.5 text-xs font-mono font-semibold text-[#93C5FD] bg-[rgba(59,130,246,0.15)] px-3 py-1 rounded-lg border border-[rgba(59,130,246,0.3)]">
-                      <HelpCircle size={14} /> QUESTION
-                    </span>
-                    <span className="text-xs text-[#A1A1AA] flex items-center gap-1.5 font-mono">
-                      <span>Click to flip</span>
-                      <RotateCw size={12} />
-                    </span>
-                  </div>
+            <FlipCard
+              card={currentCard}
+              isFlipped={isFlipped}
+              onFlip={() => setIsFlipped((prev) => !prev)}
+              number={`#${currentIndex + 1}`}
+              frontFooter={currentCard ? dueLabel(currentCard) : undefined}
+            />
 
-                  <div className="my-auto text-center px-1 sm:px-4 overflow-y-auto max-h-48">
-                    <p className="text-lg sm:text-xl md:text-2xl font-semibold text-white leading-relaxed tracking-tight">
-                      {currentCard?.question}
-                    </p>
-                  </div>
-
-                  <div className="flex justify-between items-center text-[11px] text-[#A1A1AA] font-mono border-t border-[rgba(255,255,255,0.08)] pt-3.5">
-                    <span>SecondBrain Study Deck</span>
-                    <span>#{currentIndex + 1}</span>
-                  </div>
-                </div>
-
-                {/* Back face: Answer (Frosted Glass Floating Card with green tint) */}
-                <div className="absolute inset-0 w-full h-full [backface-visibility:hidden] [transform:rotateY(180deg)] bg-[rgba(255,255,255,0.05)] backdrop-blur-2xl border border-[rgba(52,211,153,0.35)] group-hover:bg-[rgba(255,255,255,0.08)] group-hover:border-[rgba(52,211,153,0.5)] group-hover:shadow-[0_0_35px_rgba(52,211,153,0.18)] rounded-3xl p-5 sm:p-8 md:p-10 flex flex-col justify-between shadow-[0_12px_40px_rgba(0,0,0,0.6)] transition-all duration-200">
-                  <div className="flex items-center justify-between">
-                    <span className="inline-flex items-center gap-1.5 text-xs font-mono font-semibold text-[#34D399] bg-[rgba(52,211,153,0.18)] px-3 py-1 rounded-lg border border-[rgba(52,211,153,0.3)]">
-                      <CheckCircle2 size={14} /> ANSWER
-                    </span>
-                    <span className="text-xs text-[#A1A1AA] flex items-center gap-1.5 font-mono">
-                      <span>Click to flip back</span>
-                      <RotateCw size={12} />
-                    </span>
-                  </div>
-
-                  <div className="my-auto text-center px-1 sm:px-4 overflow-y-auto max-h-48">
-                    <p className="text-base sm:text-lg md:text-xl text-white leading-relaxed font-normal">
-                      {currentCard?.answer}
-                    </p>
-                  </div>
-
-                  <div className="flex justify-between items-center gap-4 text-[11px] text-[#A1A1AA] font-mono border-t border-[rgba(255,255,255,0.08)] pt-3.5">
-                    {currentCard?.source_label ? (
-                      currentCard.source_url ? (
-                        <a
-                          href={currentCard.source_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          tabIndex={isFlipped ? 0 : -1}
-                          className="inline-flex items-center gap-1.5 min-w-0 text-[#34D399] hover:text-[#6EE7B7] hover:underline transition-colors"
-                          title={`Open the source: ${currentCard.source_url}`}
-                        >
-                          <span className="truncate">Source: {currentCard.source_label}</span>
-                          <ExternalLink size={11} className="flex-shrink-0" />
-                        </a>
-                      ) : (
-                        <span className="truncate text-[#34D399]">Source: {currentCard.source_label}</span>
-                      )
-                    ) : (
-                      <span className="text-[#34D399]">Concept Mastered</span>
-                    )}
-                    <span className="flex-shrink-0">#{currentIndex + 1}</span>
-                  </div>
-                </div>
-              </div>
+            {/* Spaced repetition: rate the card once its answer is showing */}
+            <div className="mt-6 min-h-[76px] flex flex-col items-center justify-center">
+              {isFlipped ? (
+                <ReviewButtons onRate={handleRate} disabled={isRating} />
+              ) : reviewNote ? (
+                <p className={`text-xs font-mono ${reviewNote.error ? 'text-[#F87171]' : 'text-[#34D399]'}`}>
+                  {reviewNote.text}
+                </p>
+              ) : (
+                <p className="text-xs font-mono text-[#5C5C6E]">Flip the card, then rate how well you knew it</p>
+              )}
             </div>
 
             {/* Navigation Controls */}
-            <div className="flex items-center justify-center gap-4 mt-8">
+            <div className="flex items-center justify-center gap-4 mt-4">
               <button
                 onClick={handlePrev}
                 disabled={currentIndex === 0}
@@ -443,7 +421,7 @@ export function FlashcardPage({ merged = false }: { merged?: boolean }) {
             </div>
 
             <p className="text-xs text-[#5C5C6E] mt-4 font-mono text-center">
-              Shortcuts: Space to flip, ← / → arrows to navigate
+              Shortcuts: Space to flip, ← / → arrows to navigate, 1 / 2 / 3 to rate
             </p>
           </div>
         )}

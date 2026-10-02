@@ -15,6 +15,7 @@ from datetime import datetime
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.database.db import Base
+from app.models.flashcard import ReviewScheduleMixin
 
 
 class MergedSet(Base):
@@ -66,7 +67,7 @@ class MergedSummary(Base):
     merged_set = relationship("MergedSet", back_populates="summary")
 
 
-class MergedFlashcard(Base):
+class MergedFlashcard(ReviewScheduleMixin, Base):
     __tablename__ = "merged_flashcards"
 
     id = Column(Integer, primary_key=True)

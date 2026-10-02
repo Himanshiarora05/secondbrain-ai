@@ -1,4 +1,4 @@
-import type { SearchResult, DocumentItem, UploadResult, HealthStatus, Summary, FlashcardsResponse, MergedSet, CreateMergedSetResult, MergedSummary, MergedFlashcardsResponse, AuthUser } from '../types'
+import type { SearchResult, DocumentItem, UploadResult, HealthStatus, Summary, FlashcardsResponse, MergedSet, CreateMergedSetResult, MergedSummary, MergedFlashcardsResponse, AuthUser, CardKind, ReviewGrade, ReviewResult, DueCardsResponse } from '../types'
 
 const API_BASE_URL = '/api'
 
@@ -229,6 +229,7 @@ export async function deleteDocument(documentId: number): Promise<{ message: str
     throw new Error(errData.detail || `Failed to delete document: ${response.status}`)
   }
 
+  notifyDueChanged()
   return response.json()
 }
 
@@ -325,6 +326,7 @@ async function requestFlashcards(documentId: number, count: number): Promise<Fla
     throw new Error(errData.detail || `Failed to generate flashcards: ${response.status}`)
   }
 
+  notifyDueChanged() // the old cards and their schedule are gone
   return response.json()
 }
 // ─── Merged sets ───
@@ -373,6 +375,7 @@ export async function renameMergedSet(setId: number, name: string): Promise<Merg
 export async function deleteMergedSet(setId: number): Promise<{ message: string; id: number }> {
   const response = await apiFetch(`${API_BASE_URL}/v1/merged-sets/${setId}`, { method: 'DELETE' })
   if (!response.ok) throw await detailError(response, 'Failed to delete merged set')
+  notifyDueChanged()
   return response.json()
 }
 
@@ -409,8 +412,50 @@ export function generateMergedFlashcards(setId: number, count = 10): Promise<Mer
       method: 'POST',
     })
     if (!response.ok) throw await detailError(response, 'Failed to generate merged flashcards')
+    notifyDueChanged()
     return response.json()
   })
+}
+
+// ─── Spaced repetition ───
+
+// Fired whenever the number of due cards may have changed (a card rated, a deck
+// regenerated, a document or set deleted). The sidebar's count listens.
+export const DUE_CHANGED_EVENT = 'secondbrain:due-changed'
+
+function notifyDueChanged(): void {
+  window.dispatchEvent(new Event(DUE_CHANGED_EVENT))
+}
+
+// The browser's local date as YYYY-MM-DD, so "due today" means the user's today, not UTC's.
+export function localToday(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+export async function reviewCard(kind: CardKind, cardId: number, grade: ReviewGrade): Promise<ReviewResult> {
+  const response = await apiFetch(`${API_BASE_URL}/v1/review/cards/${kind}/${cardId}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ grade, today: localToday() }),
+  })
+  if (!response.ok) throw await detailError(response, 'Failed to save your answer')
+  notifyDueChanged()
+  return response.json()
+}
+
+export async function getDueCards(): Promise<DueCardsResponse> {
+  const response = await apiFetch(`${API_BASE_URL}/v1/review/due?today=${localToday()}`)
+  if (!response.ok) throw await detailError(response, 'Failed to load due cards')
+  return response.json()
+}
+
+export async function getDueCount(): Promise<number> {
+  const response = await apiFetch(`${API_BASE_URL}/v1/review/due/count?today=${localToday()}`)
+  if (!response.ok) throw await detailError(response, 'Failed to count due cards')
+  return (await response.json()).count
 }
 
 // ─── Accounts ───
