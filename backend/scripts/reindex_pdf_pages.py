@@ -90,6 +90,13 @@ def apply_document(db, collection, doc, new_chunks, embed):
          "page_start": c["page_start"], "page_end": c["page_end"]}
         for i, c in enumerate(new_chunks)
     ]
+    # Search only returns chunks whose user_id is the signed-in user's, so the
+    # document's owner goes on every vector (as at upload). Documents without an
+    # owner yet get it from scripts/assign_documents_to_user.py.
+    user_id = getattr(doc, "user_id", None)
+    if user_id is not None:
+        for meta in metadatas:
+            meta["user_id"] = user_id
     try:
         db.query(Chunk).filter(Chunk.document_id == doc.id).delete()
         db.add_all([
