@@ -380,8 +380,8 @@ def _db_with_chunks(chunks):
     return db, q
 
 
-def _pdf_doc(file_id="f7"):
-    doc = MagicMock(id=7, file_id=file_id)
+def _pdf_doc(file_id="f7", user_id=42, metadata_json=None):
+    doc = MagicMock(id=7, file_id=file_id, user_id=user_id, metadata_json=metadata_json)
     doc.filename = "old.pdf"
     return doc
 
@@ -426,6 +426,35 @@ def test_reindex_apply_swaps_chunks_and_vectors():
     assert kw["ids"] == ["7-0", "7-1"] and [(m["page_start"], m["page_end"]) for m in kw["metadatas"]] == [(1, 1), (1, 2)]
     db.commit.assert_called_once()
     db.rollback.assert_not_called()
+
+
+def test_reindex_keeps_the_document_owner_on_every_vector():
+    # Search filters Chroma on user_id: without it, a re-indexed PDF vanishes from its owner's search.
+    r = _reindex_module()
+    db, _ = _db_with_chunks(_old_chunks(2))
+    collection = MagicMock()
+    collection.get.return_value = {"ids": [], "embeddings": [], "documents": [], "metadatas": []}
+    r.apply_document(db, collection, _pdf_doc(user_id=42), NEW, embed=lambda texts: [[0.0]] * len(texts))
+    metas = collection.add.call_args.kwargs["metadatas"]
+    assert len(metas) == len(NEW) and all(m["user_id"] == 42 for m in metas), metas
+
+    # A document with no owner yet (before accounts) gets no user_id, like at upload;
+    # assign_documents_to_user.py sets it later.
+    db, _ = _db_with_chunks(_old_chunks(2))
+    collection = MagicMock()
+    collection.get.return_value = {"ids": [], "embeddings": [], "documents": [], "metadatas": []}
+    r.apply_document(db, collection, _pdf_doc(user_id=None), NEW, embed=lambda texts: [[0.0]] * len(texts))
+    assert all("user_id" not in m for m in collection.add.call_args.kwargs["metadatas"])
+
+
+def test_reindex_skips_pdfs_read_by_ocr():
+    r = _reindex_module()
+    uploads = Path(tempfile.mkdtemp(prefix="sb-test-uploads-"))
+    (uploads / "f7.pdf").write_bytes(make_pdf([sentences("P1", 6)]))
+    db, _ = _db_with_chunks(_old_chunks(3, pages=1))
+    doc = _pdf_doc(metadata_json='{"ocr_pages": [2], "ocr_model": "m"}')
+    report, new = r.plan_document(db, doc, force=True, upload_dir=uploads)
+    assert (report["action"], new) == ("skip", None) and "OCR" in report["reason"], report
 
 
 def test_reindex_restores_everything_if_chroma_fails():
