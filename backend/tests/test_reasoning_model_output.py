@@ -114,6 +114,34 @@ def test_empty_reply_has_a_plain_message():
                     raise AssertionError(f"expected AIGenerationError for {content!r}")
 
 
+def test_empty_reply_logs_the_raw_reply():
+    from openai.types.chat import ChatCompletion
+    response = ChatCompletion.model_validate({
+        "id": "gen-123", "object": "chat.completion", "created": 0, "model": "some/model:free",
+        "choices": [{"index": 0, "finish_reason": "length",
+                     "message": {"role": "assistant", "content": None, "reasoning": "Let me think about graphs..."}}],
+        "usage": {"prompt_tokens": 900, "completion_tokens": 3400, "total_tokens": 4300},
+        "provider": "Nvidia",
+    })
+    client = MagicMock()
+    client.chat.completions.create.return_value = response
+    with patch.object(ss, "client", client), patch.object(ss, "logger") as log:
+        try:
+            ss.generate_summary("Short text.")
+        except ss.AIGenerationError:
+            pass
+        else:
+            raise AssertionError("expected AIGenerationError")
+    logged = " ".join(c.args[0] for c in log.warning.call_args_list)
+    for part in ("had no text", "finish_reason 'length'", '"completion_tokens":3400',
+                 "Let me think about graphs...", '"provider":"Nvidia"', "gen-123"):
+        assert part in logged, (part, logged)
+
+    long = ChatCompletion.model_validate({**response.model_dump(), "provider": "x" * 50_000})
+    assert len(ss.raw_reply(long)) < ss.RAW_REPLY_LOG_CHARS + 100
+    assert ss.raw_reply(long).endswith("characters in all)")
+
+
 def test_search_with_empty_reply_is_a_502():
     with patch.object(search_service, "client", replying_client(None)), patch.object(ss, "logger"), \
          patch.object(search_route, "search_similar_chunks", return_value=[(0.9, "text", "doc", None, "pdf", None, "p. 1")]):

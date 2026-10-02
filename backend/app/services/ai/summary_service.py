@@ -142,14 +142,35 @@ def check_reply(response, what: str) -> None:
         logger.warning(f"AI reply hit the length limit while {what} (model {MODEL_NAME}); the text is cut off")
 
 
+RAW_REPLY_LOG_CHARS = 20_000
+
+
+def raw_reply(response) -> str:
+    """The whole reply as OpenRouter sent it (finish_reason, usage, reasoning
+    and any provider fields included), for the log; cut at RAW_REPLY_LOG_CHARS."""
+    try:
+        raw = response.model_dump_json()
+        if not isinstance(raw, str):
+            raw = repr(response)
+    except Exception:
+        raw = repr(response)
+    if len(raw) > RAW_REPLY_LOG_CHARS:
+        raw = f"{raw[:RAW_REPLY_LOG_CHARS]}… ({len(raw)} characters in all)"
+    return raw
+
+
 def reply_text(response, what: str) -> str:
     """The reply's text. Raises for an error reply (see check_reply) and, as
     AIGenerationError, when there is no text (a reasoning model can use up the
-    whole budget thinking); logs a reply that was cut off."""
+    whole budget thinking); logs a reply that was cut off, and the raw reply
+    when it has no text."""
     check_reply(response, what)
     text = (response.choices[0].message.content or "").strip()
     if not text:
-        logger.warning(f"AI reply had no text while {what} (model {MODEL_NAME})")
+        logger.warning(
+            f"AI reply had no text while {what} (model {MODEL_NAME}, "
+            f"finish_reason {response.choices[0].finish_reason!r}); raw reply: {raw_reply(response)}"
+        )
         raise AIGenerationError("The AI returned an empty reply. Please try again.")
     return text
 
