@@ -35,7 +35,9 @@ export function DueTodayPage() {
   // Still to review: the head is the card showing. "Again" sends a card to the back.
   const [queue, setQueue] = useState<DueCard[]>([])
   const [reviewed, setReviewed] = useState(0)
-  // The day's totals as loaded (reviews, new cards, the new-card limit).
+  // The day's totals as loaded. Only new_waiting / new_limit are shown from it:
+  // rating cards here doesn't change them, while the review / new split is
+  // worked out from the queue (reviewsLeft / newLeft) so it keeps up.
   const [totals, setTotals] = useState<Omit<DueCardsResponse, 'cards'> | null>(null)
   const [isFlipped, setIsFlipped] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
@@ -100,6 +102,9 @@ export function DueTodayPage() {
   }, [queue, isFlipped, isRating])
 
   const groups = groupByDeck(queue)
+  // A new card answered "Again" gets today's due date, so it then counts as a review.
+  const reviewsLeft = queue.filter((c) => c.due_date).length
+  const newLeft = queue.length - reviewsLeft
 
   return (
     <div className="flex flex-col w-full max-w-4xl mx-auto animate-fade-in pb-16 min-w-0">
@@ -208,7 +213,7 @@ export function DueTodayPage() {
             </h2>
             {totals && (
               <p className="text-xs text-[#A1A1AA] font-mono -mt-2 mb-4">
-                Today: {totals.review_count} {totals.review_count === 1 ? 'review' : 'reviews'} · {totals.new_count} new
+                {reviewsLeft} {reviewsLeft === 1 ? 'review' : 'reviews'} · {newLeft} new
                 {totals.new_waiting > 0 && ` · ${totals.new_waiting} more new waiting (daily limit ${totals.new_limit})`}
               </p>
             )}
