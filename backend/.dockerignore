@@ -1,0 +1,14 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+uploads/
+vector_db/
+.backup_before_sync/
+*.sql
+*.log
+tests/
+Dockerfile
+.dockerignore
