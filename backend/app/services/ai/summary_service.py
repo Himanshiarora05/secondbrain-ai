@@ -10,7 +10,7 @@ import logging
 import os
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from typing import List, Optional, Tuple
 import httpx
 import openai
@@ -256,8 +256,11 @@ def parallel_calls() -> int:
 def run_calls(fn, items) -> list:
     """fn(item) for every item, up to parallel_calls() at a time; results in the items' order.
 
-    The first failure cancels the calls that haven't started and is raised
-    (calls already running finish first, and their results are dropped).
+    The first failure, whichever call it comes from, cancels the calls that
+    haven't started and is raised (calls already running finish first, and their
+    results are dropped). Waiting on the results in order instead would let a
+    slow early call hide a later failure while the other workers kept starting
+    calls (e.g. every remaining one, each refused by the daily limit).
     """
     items = list(items)
     workers = min(parallel_calls(), len(items))
@@ -266,11 +269,17 @@ def run_calls(fn, items) -> list:
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = [pool.submit(fn, item) for item in items]
         try:
-            return [future.result() for future in futures]
+            done, _ = wait(futures, return_when=FIRST_EXCEPTION)
         except BaseException:
             for future in futures:
                 future.cancel()
             raise
+        failed = [f for f in futures if f in done and f.exception() is not None]
+        if failed:
+            for future in futures:
+                future.cancel()
+            failed[0].result()  # raises the earliest item's failure
+        return [future.result() for future in futures]
 
 
 # ─── Notes too long for one final call: combine them in rounds ───
