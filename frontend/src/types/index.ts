@@ -113,7 +113,14 @@ export interface DueCard extends Omit<Flashcard, keyof CardSchedule>, CardSchedu
 
 export interface DueCardsResponse {
   today: string
+  // review_count scheduled cards + new_count new ones (today's share of the daily new-card limit).
   count: number
+  review_count: number
+  new_count: number
+  // New cards held back by the limit until another day.
+  new_waiting: number
+  new_limit: number
+  new_left_today: number
   cards: DueCard[]
 }
 

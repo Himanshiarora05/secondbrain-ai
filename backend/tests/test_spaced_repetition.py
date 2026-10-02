@@ -244,6 +244,81 @@ def test_deleting_a_document_removes_its_due_cards():
     assert due(db, alice)["count"] == 0
 
 
+# ─── Daily new-card limit ───
+
+
+def counts(db, user, today=TODAY):
+    full = due(db, user, today)
+    quick = rv.due_count(today=today, db=db, user=user)
+    keys = ("count", "review_count", "new_count", "new_waiting", "new_limit", "new_left_today")
+    assert {k: full[k] for k in keys} == {k: quick[k] for k in keys}, (full, quick)
+    assert full["count"] == len(full["cards"])
+    return full
+
+
+def test_at_most_20_new_cards_a_day_oldest_first():
+    db = fresh_db()
+    alice = add_user(db, "alice@example.com")
+    _, older = add_deck(db, alice, "older.pdf", n=15)
+    _, newer = add_deck(db, alice, "newer.pdf", n=10)
+    res = counts(db, alice)
+    assert (res["count"], res["new_count"], res["new_waiting"], res["new_limit"], res["new_left_today"]) == (20, 20, 5, 20, 20)
+    assert [c["id"] for c in res["cards"]] == [c.id for c in older] + [c.id for c in newer[:5]], "oldest new cards first"
+
+
+def test_new_cards_started_anywhere_use_up_the_day():
+    db = fresh_db()
+    alice = add_user(db, "alice@example.com")
+    _, cards = add_deck(db, alice, "cells.pdf", n=25)
+    for card in cards[:3]:
+        rate(db, alice, "document", card.id, "good")   # started in the deck, due tomorrow
+    rate(db, alice, "document", cards[3].id, "again")  # started, and due again today
+    res = counts(db, alice)
+    assert (res["review_count"], res["new_count"], res["new_left_today"], res["new_waiting"]) == (1, 16, 16, 5), res
+    assert res["cards"][0]["id"] == cards[3].id, "the scheduled review comes first"
+    # Rating the same card again doesn't use up another new card.
+    rate(db, alice, "document", cards[3].id, "good")
+    assert counts(db, alice)["new_left_today"] == 16
+    # Tomorrow the allowance is back to 20 (and the 'good' cards are due).
+    tomorrow = counts(db, alice, TODAY + timedelta(days=1))
+    assert (tomorrow["review_count"], tomorrow["new_count"], tomorrow["new_left_today"]) == (4, 20, 20), tomorrow
+
+
+def test_limit_counts_both_kinds_and_is_per_user():
+    db = fresh_db()
+    alice, bob = add_user(db, "alice@example.com"), add_user(db, "bob@example.com")
+    a, _ = add_deck(db, alice, "a.pdf", n=10)
+    b, _ = add_deck(db, alice, "b.pdf", n=10)
+    _, mcards = add_merged_deck(db, alice, [a, b], n=10)
+    for card in mcards[:5]:
+        rate(db, alice, "merged", card.id, "easy")
+    assert counts(db, alice)["new_left_today"] == 15
+    add_deck(db, bob, "bob.pdf", n=3)
+    assert counts(db, bob)["new_left_today"] == 20 and counts(db, bob)["new_count"] == 3
+
+
+def test_new_card_limit_setting():
+    db = fresh_db()
+    alice = add_user(db, "alice@example.com")
+    _, cards = add_deck(db, alice, "cells.pdf", n=8)
+    rate(db, alice, "document", cards[0].id, "again")
+    old = os.environ.get("NEW_CARDS_PER_DAY")
+    try:
+        os.environ["NEW_CARDS_PER_DAY"] = "0"
+        res = counts(db, alice)
+        assert (res["count"], res["new_count"], res["new_waiting"]) == (1, 0, 7), "0 turns new cards off; reviews still show"
+        os.environ["NEW_CARDS_PER_DAY"] = "4"
+        assert counts(db, alice)["new_count"] == 3, "one of the 4 was started today"
+        for bad in ("lots", "-1"):
+            os.environ["NEW_CARDS_PER_DAY"] = bad
+            assert counts(db, alice)["new_limit"] == 20
+    finally:
+        if old is None:
+            os.environ.pop("NEW_CARDS_PER_DAY", None)
+        else:
+            os.environ["NEW_CARDS_PER_DAY"] = old
+
+
 if __name__ == "__main__":
     tests = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for t in tests:

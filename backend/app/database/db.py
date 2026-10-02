@@ -105,9 +105,11 @@ def init_db():
                 "repetitions INTEGER DEFAULT 0 NOT NULL",
                 "due_date DATE",
                 "last_reviewed_at TIMESTAMP",
+                "first_reviewed_on DATE",
             ):
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column};"))
             conn.execute(text(f"CREATE INDEX IF NOT EXISTS ix_{table}_due_date ON {table} (due_date);"))
+            conn.execute(text(f"CREATE INDEX IF NOT EXISTS ix_{table}_first_reviewed_on ON {table} (first_reviewed_on);"))
         # Ownership (user accounts). Existing rows stay null until
         # scripts/assign_documents_to_user.py assigns them.
         for table in ("documents", "merged_sets"):
