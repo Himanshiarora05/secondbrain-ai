@@ -185,7 +185,8 @@ export function FlashcardPage({ merged = false }: { merged?: boolean }) {
   }
 
   const today = localToday()
-  const dueInDeck = cards.filter((c) => !c.due_date || c.due_date <= today).length
+  const dueInDeck = cards.filter((c) => c.due_date && c.due_date <= today).length
+  const newInDeck = cards.filter((c) => !c.due_date).length
 
   const handleShuffle = () => {
     if (cards.length <= 1) return
@@ -274,6 +275,7 @@ export function FlashcardPage({ merged = false }: { merged?: boolean }) {
               <p className="text-xs text-[#A1A1AA] mt-1 font-mono">
                 {cards.length} revision cards ready
                 {dueInDeck > 0 && <span className="text-[#FBBF24]"> · {dueInDeck} due today</span>}
+                {newInDeck > 0 && <span className="text-[#93C5FD]"> · {newInDeck} new</span>}
               </p>
             )}
           </div>

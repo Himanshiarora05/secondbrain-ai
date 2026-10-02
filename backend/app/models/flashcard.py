@@ -17,6 +17,9 @@ class ReviewScheduleMixin:
     repetitions = Column(Integer, default=0, nullable=False)
     due_date = Column(Date, nullable=True, index=True)
     last_reviewed_at = Column(DateTime, nullable=True)
+    # The (local) day the card was first rated; new cards started today count
+    # against the daily new-card limit (app/routes/review.py).
+    first_reviewed_on = Column(Date, nullable=True, index=True)
 
 
 class Flashcard(ReviewScheduleMixin, Base):

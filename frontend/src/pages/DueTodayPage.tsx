@@ -8,7 +8,7 @@ import { FlipCard } from '../components/library/FlipCard'
 import { ReviewButtons } from '../components/library/ReviewButtons'
 import { GRADE_KEYS, dueLabel, nextReviewText } from '../components/library/reviewSchedule'
 import { sourceBadge, MERGED_BADGE_STYLE } from '../components/library/sourceBadge'
-import type { DueCard, ReviewGrade } from '../types'
+import type { DueCard, DueCardsResponse, ReviewGrade } from '../types'
 
 function deckLink(card: DueCard): string {
   return card.kind === 'merged' ? `/library/merged/${card.deck_id}/flashcards` : `/library/${card.deck_id}/flashcards`
@@ -35,6 +35,8 @@ export function DueTodayPage() {
   // Still to review: the head is the card showing. "Again" sends a card to the back.
   const [queue, setQueue] = useState<DueCard[]>([])
   const [reviewed, setReviewed] = useState(0)
+  // The day's totals as loaded (reviews, new cards, the new-card limit).
+  const [totals, setTotals] = useState<Omit<DueCardsResponse, 'cards'> | null>(null)
   const [isFlipped, setIsFlipped] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isRating, setIsRating] = useState(false)
@@ -45,7 +47,11 @@ export function DueTodayPage() {
     let isMounted = true
     getDueCards()
       .then((res) => {
-        if (isMounted) setQueue(res.cards)
+        if (isMounted) {
+          const { cards, ...rest } = res
+          setQueue(cards)
+          setTotals(rest)
+        }
       })
       .catch((err) => {
         if (isMounted) setError(err.message || 'Failed to load due cards')
@@ -108,7 +114,7 @@ export function DueTodayPage() {
         <p className="text-[#A1A1AA] text-sm max-w-xl">
           Cards from all your decks that are due for review. Rate each one: <span className="text-[#F87171]">Again</span>{' '}
           brings it back today, <span className="text-[#93C5FD]">Good</span> and <span className="text-[#34D399]">Easy</span>{' '}
-          space it out further each time. Cards you haven't rated yet are included as new cards.
+          space it out further each time. Cards you haven't rated yet join as new cards, up to {totals?.new_limit ?? 20} a day (oldest first); new cards you start in a deck count too.
         </p>
       </div>
 
@@ -126,9 +132,14 @@ export function DueTodayPage() {
           icon={<CheckCircle2 size={36} />}
           title={reviewed > 0 ? 'All done for today' : 'Nothing due today'}
           description={
-            reviewed > 0
+            (reviewed > 0
               ? `You reviewed ${reviewed} ${reviewed === 1 ? 'card' : 'cards'}. Come back when the next ones are due.`
-              : 'Generate flashcards for a document or merged set to start reviewing.'
+              : totals && totals.new_waiting > 0
+                ? "You've started today's new cards."
+                : 'Generate flashcards for a document or merged set to start reviewing.') +
+            (totals && totals.new_waiting > 0
+              ? ` ${totals.new_waiting} more new ${totals.new_waiting === 1 ? 'card is' : 'cards are'} waiting: up to ${totals.new_limit} new cards join each day.`
+              : '')
           }
           action={
             <Link
@@ -195,6 +206,12 @@ export function DueTodayPage() {
             <h2 id="due-list-heading" className="text-sm font-semibold text-white mb-4">
               Still due ({queue.length})
             </h2>
+            {totals && (
+              <p className="text-xs text-[#A1A1AA] font-mono -mt-2 mb-4">
+                Today: {totals.review_count} {totals.review_count === 1 ? 'review' : 'reviews'} · {totals.new_count} new
+                {totals.new_waiting > 0 && ` · ${totals.new_waiting} more new waiting (daily limit ${totals.new_limit})`}
+              </p>
+            )}
             <div className="flex flex-col gap-4">
               {groups.map(({ key, cards }) => {
                 const badge = deckBadge(cards[0])
