@@ -21,6 +21,7 @@ from app.models.document import Document
 from app.models.merged_set import MergedFlashcard, MergedSet, MergedSetDocument, MergedSummary
 from app.models.user import User
 from app.routes.documents import MAX_NAME_LENGTH
+from app.routes.review import schedule_dict
 from app.services.ai.flashcard_service import build_chunk_citations
 from app.services.ai.merged_service import MergedSource, generate_merged_flashcards, generate_merged_summary
 from app.services.ai.summary_service import AIGenerationError
@@ -392,6 +393,7 @@ def _card_dict(card: MergedFlashcard) -> dict:
         "source_label": card.source_label,
         "source_url": card.source_url,
         "document_id": card.document_id,
+        **schedule_dict(card),
     }
 
 

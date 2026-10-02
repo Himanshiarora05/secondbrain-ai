@@ -235,7 +235,9 @@ def test_route_saves_and_returns_citations():
     assert [(c.source_label, c.source_url) for c in saved] == [
         ("00:00", VIDEO + "&t=0s"), ("02:05", VIDEO + "&t=125s"),
     ]
-    assert result["flashcards"] == [
+    # Cards also carry their review schedule (tests/test_spaced_repetition.py); only the citation fields matter here.
+    fields = ("id", "question", "answer", "source_label", "source_url")
+    assert [{k: c[k] for k in fields} for c in result["flashcards"]] == [
         {"id": 1, "question": "What is in section 0?", "answer": "Fact 0.", "source_label": "00:00", "source_url": VIDEO + "&t=0s"},
         {"id": 2, "question": "What is in section 1?", "answer": "Fact 1.", "source_label": "02:05", "source_url": VIDEO + "&t=125s"},
     ]

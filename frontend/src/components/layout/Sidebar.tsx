@@ -1,10 +1,12 @@
 import { NavLink } from 'react-router-dom'
-import { Home, Library, Layers, Settings, FileText, LogOut } from 'lucide-react'
+import { Home, Library, Layers, Settings, FileText, LogOut, CalendarCheck } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useDocuments } from '../../context/DocumentContext'
+import { useDueCount } from '../../hooks/useDueCount'
 
 export function Sidebar() {
   const { documents } = useDocuments()
+  const dueCount = useDueCount()
   const { user, logout } = useAuth()
   const recentDocs = [...documents].sort((a, b) => b.id - a.id).slice(0, 4)
 
@@ -45,6 +47,19 @@ export function Sidebar() {
           <NavLink to="/flashcards" className={navLinkClass}>
             <Layers size={16} />
             <span>Flashcards</span>
+          </NavLink>
+
+          <NavLink to="/review" className={navLinkClass}>
+            <CalendarCheck size={16} />
+            <span className="flex-1">Due today</span>
+            {dueCount !== null && dueCount > 0 && (
+              <span
+                className="min-w-[20px] px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold text-center text-[#FBBF24] bg-[rgba(251,191,36,0.15)] border border-[rgba(251,191,36,0.3)]"
+                aria-label={`${dueCount} cards due today`}
+              >
+                {dueCount > 99 ? '99+' : dueCount}
+              </span>
+            )}
           </NavLink>
         </div>
 

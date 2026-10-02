@@ -8,6 +8,7 @@ from app.models.document import Document
 from app.models.summary import Summary
 from app.models.flashcard import Flashcard
 from app.models.user import User
+from app.routes.review import schedule_dict
 from app.services.auth_service import get_current_user
 from app.services.ownership import owned_document
 from app.services.ai.summary_service import (
@@ -239,4 +240,5 @@ def _flashcard_dict(card: Flashcard) -> dict:
         "answer": card.answer,
         "source_label": card.source_label,
         "source_url": card.source_url,
+        **schedule_dict(card),
     }

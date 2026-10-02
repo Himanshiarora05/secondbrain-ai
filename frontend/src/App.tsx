@@ -5,6 +5,7 @@ import { LibraryPage } from './pages/LibraryPage'
 import { SummaryPage } from './pages/SummaryPage'
 import { FlashcardPage } from './pages/FlashcardPage'
 import { FlashcardsHubPage } from './pages/FlashcardsHubPage'
+import { DueTodayPage } from './pages/DueTodayPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { AuthPage } from './pages/AuthPage'
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
@@ -40,6 +41,7 @@ function App() {
             <Route path="library/merged/:setId/summary" element={<SummaryPage merged />} />
             <Route path="library/merged/:setId/flashcards" element={<FlashcardPage merged />} />
             <Route path="flashcards" element={<FlashcardsHubPage />} />
+            <Route path="review" element={<DueTodayPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

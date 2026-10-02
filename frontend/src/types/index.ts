@@ -72,7 +72,17 @@ export interface Summary {
   summary: string
 }
 
-export interface Flashcard {
+// SM-2 review state, on every card the API returns.
+export interface CardSchedule {
+  ease: number
+  interval_days: number
+  repetitions: number
+  // YYYY-MM-DD; null until the card is first rated.
+  due_date: string | null
+  last_reviewed_at: string | null
+}
+
+export interface Flashcard extends Partial<CardSchedule> {
   id: number
   question: string
   answer: string
@@ -81,6 +91,30 @@ export interface Flashcard {
   source_label?: string | null
   // Link for source_label (video moment or web page); null for slides.
   source_url?: string | null
+}
+
+// ─── Spaced repetition ───
+
+export type ReviewGrade = 'again' | 'good' | 'easy'
+// A document's own deck, or a merged set's deck.
+export type CardKind = 'document' | 'merged'
+
+export interface ReviewResult extends CardSchedule {
+  kind: CardKind
+  id: number
+}
+
+export interface DueCard extends Omit<Flashcard, keyof CardSchedule>, CardSchedule {
+  kind: CardKind
+  deck_id: number
+  deck_name: string
+  deck_source_type: SourceType | 'merged'
+}
+
+export interface DueCardsResponse {
+  today: string
+  count: number
+  cards: DueCard[]
 }
 
 export interface FlashcardsResponse {
