@@ -1,4 +1,4 @@
-import { FileText, Presentation, FileEdit, Video, Globe } from 'lucide-react'
+import { FileText, Presentation, FileEdit, Video, Globe, Image as ImageIcon } from 'lucide-react'
 
 export interface SourceBadge {
   icon: React.ReactNode
@@ -39,6 +39,13 @@ export function sourceBadge(type?: string | null, iconSize = 14): SourceBadge {
         label: 'WEB',
         style: 'text-[#22D3EE] bg-[rgba(34,211,238,0.2)] border border-[rgba(34,211,238,0.3)]',
         bgColor: 'bg-[rgba(34,211,238,0.15)]',
+      }
+    case 'image':
+      return {
+        icon: <ImageIcon size={iconSize} className="text-[#34D399]" />,
+        label: 'IMAGE',
+        style: 'text-[#34D399] bg-[rgba(52,211,153,0.2)] border border-[rgba(52,211,153,0.3)]',
+        bgColor: 'bg-[rgba(52,211,153,0.15)]',
       }
     case 'pdf':
     default:

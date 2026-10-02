@@ -36,7 +36,7 @@ def search_similar_chunks(query: str, user_id: int, top_k: int = 5):
     searched (set at upload, or by scripts/assign_documents_to_user.py).
 
     location is a short citation for the match: "02:05" for YouTube, "p. 12"
-    / "pp. 12–13" for PDFs with page ranges, otherwise None.
+    / "pp. 12–13" for PDFs with page ranges and image uploads, otherwise None.
     """
     collection = get_collection()
     query_embedding = get_embedding(query)
@@ -69,7 +69,7 @@ def search_similar_chunks(query: str, user_id: int, top_k: int = 5):
             )
             if meta.get("start_seconds") is not None:
                 location = format_timestamp(meta["start_seconds"])
-        elif source_type == "pdf":
+        elif source_type in ("pdf", "image"):
             location = format_pages(meta.get("page_start"), meta.get("page_end"))
 
         scored_results.append(

@@ -27,11 +27,23 @@ class PDFService:
             return [page.get_text() for page in document]
 
     @staticmethod
-    def has_images(source: PdfSource) -> bool:
-        """Whether any page has an embedded image. A PDF with images but no
-        text is almost always scanned pages without a text layer."""
+    def scanned_pages(source: PdfSource) -> list[int]:
+        """Page numbers (1-based) with no text but at least one image: scanned
+        pages without a text layer, which need OCR. Blank pages aren't listed."""
         with _open(source) as document:
-            return any(page.get_images() for page in document)
+            return [
+                number for number, page in enumerate(document, start=1)
+                if not page.get_text().strip() and page.get_images()
+            ]
+
+    @staticmethod
+    def render_pages(source: PdfSource, page_numbers: list[int], dpi: int = 150) -> list[bytes]:
+        """JPEG pictures of the given pages (1-based), in the same order, for OCR."""
+        with _open(source) as document:
+            return [
+                document[number - 1].get_pixmap(dpi=dpi).tobytes("jpeg", jpg_quality=85)
+                for number in page_numbers
+            ]
 
     @staticmethod
     def extract_text(source: PdfSource):

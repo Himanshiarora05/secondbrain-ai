@@ -102,10 +102,12 @@ def test_successful_uploads_keep_their_file():
         assert len(left) == 1 and left[0].endswith(ext), left
 
 
-def test_scanned_pdf_is_explained_and_removed():
-    result, left = call(upload.upload_pdf, "scan.pdf", pdf_bytes(text="", image=True))
+def test_scanned_pdf_without_recognisable_text_is_explained_and_removed():
+    # Scanned pages go through OCR (mocked here: it finds no text); see test_ocr.py.
+    result, left = call(upload.upload_pdf, "scan.pdf", pdf_bytes(text="", image=True),
+                        patches=[(upload.ocr_service, "ocr_images", lambda images, pages=None: [""] * len(images))])
     rejected(result, 400, upload.SCANNED_PDF_MESSAGE)
-    assert "scanned" in result.detail and "OCR" in result.detail
+    assert "scanned" in result.detail
     assert left == [], left
 
 

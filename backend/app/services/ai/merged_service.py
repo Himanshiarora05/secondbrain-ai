@@ -42,6 +42,7 @@ SOURCE_KINDS = {
     "docx": "Word document",
     "youtube": "YouTube video",
     "website": "Web page",
+    "image": "Images",
 }
 
 MERGED_SYSTEM_PROMPT = (

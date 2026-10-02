@@ -145,6 +145,7 @@ export function SettingsPage() {
               ['POST', '/api/v1/upload/pdf', 'PDF document ingestion with sentence chunking'],
               ['POST', '/api/v1/upload/pptx', 'PowerPoint slide extraction with speaker notes'],
               ['POST', '/api/v1/upload/docx', 'Word document parsing with heading hierarchy'],
+              ['POST', '/api/v1/upload/images', 'Photos and screenshots read by AI text recognition, one page per image'],
               ['POST', '/api/v1/upload/youtube', 'YouTube transcript fetch with timestamp links'],
               ['GET', '/api/v1/search?query=…', 'Chroma vector search + AI generation'],
               ['POST', '/api/v1/documents/:id/summary', 'Map-reduce exam revision summary generation'],

@@ -5,21 +5,25 @@ A study notes summarizer. Add your study material, and SecondBrain turns it into
 ## What it does
 
 - **Accounts**: sign up with an email and password. Your documents, summaries, flashcards, merged sets and search results are private to your account; nobody else can see or open them, even with a direct link. Forgot your password? **Forgot password?** on the login page emails you a link to set a new one (it works once, expires after 30 minutes, and logs you out everywhere). See [Password reset emails](#password-reset-emails).
-- **Add sources**: PDF, PowerPoint (`.pptx`), Word (`.docx`), YouTube videos (with captions), and website links. You can pick or drop several files at once; each becomes its own document. After any upload, the app offers to merge the new document(s) with others in your library into a merged set, without going through the Library's **Select**. Creating the set doesn't generate anything; its summary is made when you open it.
+- **Add sources**: PDF, PowerPoint (`.pptx`), Word (`.docx`), photos or screenshots of notes (`.jpg`, `.png`), YouTube videos (with captions), and website links. You can pick or drop several files at once; each becomes its own document, except images, which become one document together. After any upload, the app offers to merge the new document(s) with others in your library into a merged set, without going through the Library's **Select**. Creating the set doesn't generate anything; its summary is made when you open it.
 - **Summaries**: exam-revision notes for each source.
   - YouTube summaries link every point to its moment in the video (`[02:05]`).
   - PDF summaries cite the page of every point (`(p. 12)`, `(pp. 12–13)`), PowerPoint summaries the slide (`(Slide 4)`).
   - Website summaries end with a link back to the original page.
-- **Flashcards**: question-and-answer cards generated from any source, spread across the whole source. Each card shows where it came from: the video moment, the web page, the PDF page or the slides (Word cards don't show a location).
+- **Text recognition (OCR)**: scanned PDF pages (images with no selectable text) and uploaded images are read by an AI vision model on OpenRouter (`OCR_MODEL`, a free model by default).
+  - Scanned pages keep their page numbers, so summaries, cards and search still cite `(p. 12)`; pages that already have text are read as usual.
+  - Images picked together become one document, one page per image in the order you picked them, so a point from the third photo cites `(p. 3)`.
+  - At most 20 pages per upload: 20 scanned pages in one PDF, or 20 images (JPG or PNG, 20 MB each, 50 MB together). Each page is one AI call, and free models allow about 50 calls a day on an account without credits.
+- **Flashcards**: question-and-answer cards generated from any source, spread across the whole source. Each card shows where it came from: the video moment, the web page, the PDF or image page, or the slides (Word cards don't show a location).
 - **Merged sets**: select 2–8 sources of any type in the Library (**Select**, tick them, **Create merged set**), or from the prompt after an upload, and get one summary and one flashcard deck from all of them together.
   - Every point still says which source and where: `(1: p. 12)`, `(2: Slide 4)`, `[3: 02:05]`, with a numbered list of the sources at the top. Cards say, for example, "Graph_PPT.pdf · p. 12".
   - A set has its own summary and deck, so each document's own summary and flashcards stay as they are. Picking the same documents again opens the existing set instead of making a copy.
   - Limits: 8 documents and 300,000 characters of text per set (change it with `MERGED_MAX_CHARS`). If you delete a document, the set says its summary and cards are out of date until you regenerate them.
-- **Ask questions**: search across everything you've saved and get an AI answer, with links to the sources it used (the exact video moment for YouTube, the page for websites) and the page for PDFs.
+- **Ask questions**: search across everything you've saved and get an AI answer, with links to the sources it used (the exact video moment for YouTube, the page for websites) and the page for PDFs and images.
 - **No duplicate links**: adding a web page or YouTube video that's already in your library is refused, with an "Open it" link to the saved copy. Different forms of the same link count as the same (`http`/`https`, `www.`, `#section` or tracking parameters for pages; `youtu.be`, `/shorts/` or `&t=` for videos). To re-import, delete the saved copy first.
 - **Clear AI errors**: if the AI service can't respond (out of credits, invalid API key, rate limit, the daily free-model limit, timeout, outage), the page says so in plain words. The technical details go to the backend log. Momentary failures, such as an overloaded provider, are retried automatically.
 
-Old `.ppt` and `.doc` files aren't supported; save them as `.pptx` / `.docx` first. Scanned PDFs (pages that are only images, with no selectable text) can't be read yet; run them through OCR first. Website import only reads public pages (no logins, paywalls, or JavaScript-only apps) up to 5 MB, and blocks local and private network addresses.
+Old `.ppt` and `.doc` files aren't supported; save them as `.pptx` / `.docx` first. A PDF with more than 20 scanned pages is refused; split it into parts. Handwriting is read as well as the model manages, so check the summary against the original. Website import only reads public pages (no logins, paywalls, or JavaScript-only apps) up to 5 MB, and blocks local and private network addresses.
 
 ## How it's built
 
@@ -84,6 +88,7 @@ Then edit `backend/.env`:
 | `MERGED_MAX_CHARS` | The most text a merged set can hold. Default `300000`. Bigger sets take longer and cost more to summarise. |
 | `SUMMARY_PARALLEL_CALLS` | How many AI calls a long summary runs at once. Default `4`; lower it if you hit rate limits. |
 | `OPENROUTER_MODEL` | The AI model. Default `openai/gpt-4o-mini`; a `:free` model works for testing without credits. |
+| `OCR_MODEL` | The model that reads scanned PDF pages and images. It must accept images. Default `google/gemma-4-31b-it:free`. Free models come and go on OpenRouter: if uploads say the model isn't available, pick another model with image input at [openrouter.ai/models](https://openrouter.ai/models). |
 
 `.env` is in `.gitignore`. Never commit it.
 
@@ -167,7 +172,7 @@ python scripts/reindex_pdf_pages.py           # preview: lists what would change
 python scripts/reindex_pdf_pages.py --apply   # re-index
 ```
 
-This rebuilds each PDF's search chunks with page numbers. The document, its summary and its flashcards are kept; regenerate the summary or flashcards afterwards to get page citations.
+This rebuilds each PDF's search chunks with page numbers. PDFs whose scanned pages were read by OCR are skipped (re-reading the file would lose that text). The document, its summary and its flashcards are kept; regenerate the summary or flashcards afterwards to get page citations.
 
 ## Development
 
@@ -194,6 +199,8 @@ Only these are safe to run anywhere: they're fully offline (network, database, a
 - `test_youtube_duplicates.py`
 - `test_ai_error_messages.py`
 - `test_pdf_page_citations.py`
+- `test_upload_cleanup.py`
+- `test_ocr.py`
 
 The other scripts run against your **real** database, vector index, and OpenRouter account, and some delete data. Read a script before running it.
 
