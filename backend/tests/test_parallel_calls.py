@@ -90,6 +90,40 @@ def test_first_failure_stops_the_rest():
     assert tracker.started < 10, f"{tracker.started} of 30 calls started after the failure"
 
 
+def test_failure_behind_a_slow_call_stops_the_rest():
+    # A slow early call must not hide a later failure: before, results were awaited
+    # in order, so while call 0 ran the other workers kept starting (and failing)
+    # every remaining call, e.g. 82 calls refused by the daily limit.
+    tracker = Tracker()
+
+    def work(i):
+        with tracker:
+            if i == 0:
+                time.sleep(0.5)
+                return i
+            time.sleep(0.01)
+            raise ss.AIGenerationError("Today's free AI requests are used up.")
+
+    try:
+        ss.run_calls(work, range(100))
+        raise AssertionError("expected the failure")
+    except ss.AIGenerationError as e:
+        assert "used up" in str(e)
+    assert tracker.started < 10, f"{tracker.started} of 100 calls started after the failure"
+
+
+def test_the_earliest_failed_item_is_raised():
+    def work(i):
+        time.sleep(0.05 if i == 1 else 0.01)
+        raise ss.AIGenerationError(f"failed {i}")
+
+    with patch.dict(os.environ, {"SUMMARY_PARALLEL_CALLS": "2"}):
+        try:
+            ss.run_calls(work, range(2))
+        except ss.AIGenerationError as e:
+            assert str(e) == "failed 0", str(e)
+
+
 def test_no_items_and_one_item():
     assert ss.run_calls(lambda i: i, []) == []
     assert ss.run_calls(lambda i: i + 1, [1]) == [2]
