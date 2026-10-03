@@ -35,9 +35,10 @@ services:
         value: nvidia/nemotron-3-super-120b-a12b:free
       - key: OCR_MODEL
         value: qwen/qwen3.8-27b:free
+      # The Vercel frontend, used in password reset links.
+      - key: APP_BASE_URL
+        value: https://secondbrain-ai-one.vercel.app
       - key: DATABASE_URL
         sync: false
       - key: OPENROUTER_API_KEY
-        sync: false
-      - key: APP_BASE_URL
         sync: false
