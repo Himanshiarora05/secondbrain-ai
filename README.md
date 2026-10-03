@@ -1,8 +1,62 @@
 # SecondBrain
 
-A study notes summarizer. Add your study material, and SecondBrain turns it into concise revision notes, flashcards, and a searchable knowledge base you can ask questions about.
+**Live demo: [secondbrain-ai-one.vercel.app](https://secondbrain-ai-one.vercel.app)**
 
-## What it does
+> The backend runs on Render's free plan, which sleeps when idle. The first load after a quiet spell can take about 50 seconds while it wakes up; after that it's quick.
+
+A study notes summarizer. Add your study material, and SecondBrain turns it into concise revision notes, flashcards, quizzes, and a searchable knowledge base you can ask questions about.
+
+## Features
+
+- **Multi-source ingestion**: PDF, PowerPoint, Word, images, YouTube videos and web pages
+- **OCR**: reads handwritten notes, photos and scanned PDFs with an AI vision model
+- **Cited summaries**: every point links back to its page, slide or video timestamp
+- **Flashcards with spaced repetition**: SM-2 scheduling and a daily "Due today" review
+- **Quizzes**: multiple-choice questions with explanations and citations
+- **Merged sets**: study 2–8 sources together as one summary, deck and quiz
+- **Semantic search**: ask questions across your library and get a sourced AI answer
+
+## Architecture
+
+```mermaid
+flowchart LR
+    U["Browser"] --> FE["React + Vite<br/>(Vercel)"]
+    FE -- "/api/* rewrite" --> BE["FastAPI<br/>(Render)"]
+    BE --> DB[("Neon Postgres<br/>+ pgvector")]
+    BE --> OR["OpenRouter<br/>(LLM + OCR vision model)"]
+    BE -.-> EM["Brevo<br/>(reset emails)"]
+```
+
+Vercel rewrites `/api/*` to the Render backend, so the session cookie stays same-origin. Embeddings (`all-MiniLM-L6-v2` through fastembed) are computed inside the backend and stored in pgvector alongside the documents, chunks, summaries and flashcards.
+
+## Tech stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 19, Vite, TypeScript, Tailwind CSS v4 |
+| Backend | FastAPI (Python 3.11), SQLAlchemy |
+| Database | PostgreSQL with pgvector (Neon) |
+| Embeddings | `all-MiniLM-L6-v2` via fastembed (ONNX) |
+| AI | OpenRouter (summaries, flashcards, quizzes, answers, OCR) |
+| Email | Brevo (password reset) |
+| Hosting | Vercel (frontend), Render (backend), Neon (database) |
+
+## Screenshots
+
+<!-- Add images to docs/screenshots/ and replace each placeholder below, e.g. ![Library](docs/screenshots/library.png) -->
+
+| Library | Cited summary |
+|---|---|
+| _Screenshot coming soon_ | _Screenshot coming soon_ |
+
+| Flashcards | Quiz |
+|---|---|
+| _Screenshot coming soon_ | _Screenshot coming soon_ |
+
+## Feature details
+
+<details>
+<summary>Everything the app does, with limits</summary>
 
 - **Accounts**: sign up with an email and password. Your documents, summaries, flashcards, merged sets and search results are private to your account; nobody else can see or open them, even with a direct link. Forgot your password? **Forgot password?** on the login page emails you a link to set a new one (it works once, expires after 30 minutes, and logs you out everywhere). See [Password reset emails](#password-reset-emails).
 - **Add sources**: PDF, PowerPoint (`.pptx`), Word (`.docx`), photos or screenshots of notes (`.jpg`, `.png`), YouTube videos (with captions), and website links. You can pick or drop several files at once; each becomes its own document, except images, which become one document together. After any upload, the app offers to merge the new document(s) with others in your library into a merged set, without going through the Library's **Select**. Creating the set doesn't generate anything; its summary is made when you open it.
@@ -25,12 +79,9 @@ A study notes summarizer. Add your study material, and SecondBrain turns it into
 
 Old `.ppt` and `.doc` files aren't supported; save them as `.pptx` / `.docx` first. A PDF with more than 20 scanned pages is refused; split it into parts. Handwriting is read as well as the model manages, so check the summary against the original. Website import only reads public pages (no logins, paywalls, or JavaScript-only apps) up to 5 MB, and blocks local and private network addresses.
 
-## How it's built
+</details>
 
-| Part | Stack |
-|---|---|
-| `backend/` | FastAPI, PostgreSQL with pgvector (documents, chunks and their search vectors, summaries, flashcards), `all-MiniLM-L6-v2` embeddings through fastembed (ONNX), OpenRouter for the AI model |
-| `frontend/` | React 19, Vite, TypeScript, Tailwind CSS v4 |
+## Running it yourself
 
 The frontend's dev server forwards `/api` requests to the backend on port 8000, so run both.
 
