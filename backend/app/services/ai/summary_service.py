@@ -425,11 +425,13 @@ def plain_inline_math(text: str) -> str:
 # Models fill gaps in short or scanned notes from what they already know
 # (e.g. adding the insertion cases a page never lists), so every call that
 # writes notes or a summary gets this.
-SOURCE_ONLY_RULE = (
+# Merged summaries take NO_OUTSIDE_FACTS_RULE alone, with their own wording
+# for gaps (one source may be compared with another).
+NO_OUTSIDE_FACTS_RULE = (
     "Use only what the material says: never add facts, steps, cases, examples or explanations "
-    "from general knowledge, even if the material seems incomplete. Never write about what the "
-    "material doesn't explain, define or cover."
+    "from general knowledge, even if the material seems incomplete."
 )
+SOURCE_ONLY_RULE = NO_OUTSIDE_FACTS_RULE + " Never write about what the material doesn't explain, define or cover."
 
 SUMMARY_SYSTEM_PROMPT = (
     "You are an expert study assistant creating an exam revision summary.\n"
