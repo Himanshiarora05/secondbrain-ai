@@ -12,9 +12,8 @@ from pydantic import BaseModel, HttpUrl
 from sqlalchemy.orm import Session
 
 from app.database.db import get_db
-from app.database.chroma import get_collection
 from app.models.document import Document
-from app.models.chunk import Chunk
+from app.models.chunk import Chunk, ChunkEmbedding
 from app.models.user import User
 from app.services.auth_service import get_current_user
 from app.services.pdf.pdf_service import PDFService
@@ -121,7 +120,8 @@ def _store_document_and_chunks(
     chunk_pages: Optional[List[Tuple[int, int]]] = None,
     user_id: Optional[int] = None,
 ) -> dict:
-    """Shared helper to persist Document and Chunks to PostgreSQL and Chroma."""
+    """Shared helper to persist the Document, its Chunks and their search vectors
+    (chunk_embeddings) in one Postgres transaction: all of it is stored or none."""
     try:
         embeddings = get_embeddings(chunks)
     except Exception as e:
@@ -131,7 +131,6 @@ def _store_document_and_chunks(
             detail="Could not generate document embeddings right now, please try again",
         )
 
-    # 1. Prepare Document in PostgreSQL
     doc = Document(
         file_id=file_id,
         filename=filename,
@@ -141,69 +140,26 @@ def _store_document_and_chunks(
         metadata_json=metadata_json,
         user_id=user_id,
     )
-    db.add(doc)
-    
-    try:
-        db.flush()  # Assigns doc.id without committing the transaction
-
-        # 2. Prepare Chunks in PostgreSQL & Chroma
-        collection = get_collection()
-        chroma_ids = [f"{doc.id}-{i}" for i in range(len(chunks))]
-
-        db_chunks = []
-        chroma_metadatas = []
-
-        for i, chunk_text in enumerate(chunks):
-            start_sec = chunk_start_seconds[i] if chunk_start_seconds and i < len(chunk_start_seconds) else None
-            page_start, page_end = chunk_pages[i] if chunk_pages and i < len(chunk_pages) else (None, None)
-            db_chunks.append(
-                Chunk(
-                    document_id=doc.id,
-                    content=chunk_text,
-                    chroma_id=chroma_ids[i],
-                    start_seconds=start_sec,
-                    page_start=page_start,
-                    page_end=page_end,
-                )
+    for i, chunk_text in enumerate(chunks):
+        start_sec = chunk_start_seconds[i] if chunk_start_seconds and i < len(chunk_start_seconds) else None
+        page_start, page_end = chunk_pages[i] if chunk_pages and i < len(chunk_pages) else (None, None)
+        # Search reads the owner, name, source type and URL from the document and
+        # the timestamp / pages from the chunk, so the vector needs nothing else.
+        doc.chunks.append(
+            Chunk(
+                content=chunk_text,
+                start_seconds=start_sec,
+                page_start=page_start,
+                page_end=page_end,
+                embedding=ChunkEmbedding(embedding=embeddings[i]),
             )
-            meta = {
-                "document_id": doc.id,
-                "filename": filename,
-                "chunk_index": i,
-                "source_type": source_type,
-            }
-            # Search only returns the signed-in user's chunks (search_service filters on it).
-            if user_id is not None:
-                meta["user_id"] = user_id
-            if source_url:
-                meta["source_url"] = source_url
-            if start_sec is not None:
-                meta["start_seconds"] = start_sec
-            if page_start is not None:
-                meta["page_start"] = page_start
-                meta["page_end"] = page_end
-
-            chroma_metadatas.append(meta)
-
-        db.add_all(db_chunks)
-
-        # 3. Add to Chroma FIRST
-        collection.add(
-            ids=chroma_ids,
-            embeddings=embeddings,
-            documents=chunks,
-            metadatas=chroma_metadatas,
         )
+    db.add(doc)
 
-        # 4. Commit database transaction only when Chroma succeeded
+    try:
         db.commit()
     except Exception as e:
         db.rollback()
-        try:
-            if "chroma_ids" in locals() and chroma_ids:
-                collection.delete(ids=chroma_ids)
-        except Exception:
-            pass
         logger.error(f"Failed to persist document and chunks for '{filename}': {e}", exc_info=True)
         raise HTTPException(
             status_code=500,

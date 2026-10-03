@@ -6,7 +6,7 @@ WHY THIS SCRIPT EXISTS
 PDFs uploaded before page tracking have chunks without page_start/page_end,
 so their summaries, flashcards and search results can't cite "p. 12". The
 original files are still in uploads/, so this re-reads each one page by page
-and rebuilds its chunks (Postgres) and vectors (Chroma) with page ranges.
+and rebuilds its chunks and their search vectors with page ranges.
 
 WHAT CHANGES / WHAT DOESN'T
 ---------------------------
@@ -20,10 +20,9 @@ WHAT CHANGES / WHAT DOESN'T
 
 SAFETY
 ------
-Per document: the new chunks are embedded first (nothing changed yet); the
-old Chroma vectors are read into memory before they're removed; if adding
-the new vectors fails, the old ones are put back and the database change is
-rolled back, so the document is left exactly as it was.
+Per document: the new chunks are embedded first (nothing changed yet), then
+the old chunks and vectors are replaced in one database transaction, so a
+failure leaves the document exactly as it was.
 
 USAGE (from backend/)
 ---------------------
@@ -74,50 +73,23 @@ def plan_document(db, doc, force=False, upload_dir=UPLOAD_DIR):
             "page_range": (new[0]["page_start"], new[-1]["page_end"])}, new
 
 
-def apply_document(db, collection, doc, new_chunks, embed):
-    """Swap `doc`'s chunks and vectors for `new_chunks`; restores everything on failure."""
-    from app.models.chunk import Chunk
+def apply_document(db, doc, new_chunks, embed):
+    """Swap `doc`'s chunks and their vectors for `new_chunks` in one transaction."""
+    from app.models.chunk import Chunk, ChunkEmbedding
 
     texts = [c["text"] for c in new_chunks]
     embeddings = embed(texts)  # may raise: nothing has changed yet
-
-    old_ids = [c.chroma_id for c in db.query(Chunk).filter(Chunk.document_id == doc.id).all() if c.chroma_id]
-    backup = collection.get(ids=old_ids, include=["embeddings", "documents", "metadatas"]) if old_ids else None
-
-    new_ids = [f"{doc.id}-{i}" for i in range(len(new_chunks))]
-    metadatas = [
-        {"document_id": doc.id, "filename": doc.filename, "chunk_index": i, "source_type": "pdf",
-         "page_start": c["page_start"], "page_end": c["page_end"]}
-        for i, c in enumerate(new_chunks)
-    ]
-    # Search only returns chunks whose user_id is the signed-in user's, so the
-    # document's owner goes on every vector (as at upload). Documents without an
-    # owner yet get it from scripts/assign_documents_to_user.py.
-    user_id = getattr(doc, "user_id", None)
-    if user_id is not None:
-        for meta in metadatas:
-            meta["user_id"] = user_id
     try:
+        # The old chunks' vectors go with them (ON DELETE CASCADE).
         db.query(Chunk).filter(Chunk.document_id == doc.id).delete()
         db.add_all([
-            Chunk(document_id=doc.id, content=c["text"], chroma_id=new_ids[i],
-                  page_start=c["page_start"], page_end=c["page_end"])
+            Chunk(document_id=doc.id, content=c["text"], page_start=c["page_start"], page_end=c["page_end"],
+                  embedding=ChunkEmbedding(embedding=embeddings[i]))
             for i, c in enumerate(new_chunks)
         ])
-        db.flush()
-        if old_ids:
-            collection.delete(ids=old_ids)
-        collection.add(ids=new_ids, embeddings=embeddings, documents=texts, metadatas=metadatas)
         db.commit()
     except Exception:
         db.rollback()
-        try:
-            collection.delete(ids=new_ids)
-        except Exception:
-            pass
-        if backup and backup.get("ids"):
-            collection.add(ids=backup["ids"], embeddings=backup["embeddings"],
-                           documents=backup["documents"], metadatas=backup["metadatas"])
         raise
 
 
@@ -157,13 +129,11 @@ def main(argv=None):
             print("\nNothing to do.")
             return 0
 
-        from app.database.chroma import get_collection
         from app.services.embedding_service import get_embeddings
-        collection = get_collection()
         done, failed = 0, 0
         for doc, new in todo:
             try:
-                apply_document(db, collection, doc, new, get_embeddings)
+                apply_document(db, doc, new, get_embeddings)
                 done += 1
                 print(f"  re-indexed #{doc.id}")
             except Exception as e:

@@ -7,7 +7,6 @@ import json
 import os
 import re
 import sys
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -15,11 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-# Never touch the real database, vector store or model hub.
+# Never touch the real database or model hub.
 os.environ.setdefault("DATABASE_URL", "postgresql://offline:offline@127.0.0.1:1/offline")
 os.environ.setdefault("OPENROUTER_API_KEY", "offline-test-key")
-os.environ["CHROMA_DIR"] = tempfile.mkdtemp(prefix="sb-test-chroma-")
-os.environ["ANONYMIZED_TELEMETRY"] = "False"
 os.environ["HF_HUB_OFFLINE"] = "1"
 
 from fastapi import HTTPException
@@ -206,7 +203,7 @@ def add_doc(db, name, source_type, chunks, pages=None, starts=None, url=None):
     db.flush()
     for i, text in enumerate(chunks):
         p = pages[i] if pages else (None, None)
-        db.add(Chunk(document_id=doc.id, content=text, chroma_id=f"{doc.id}-{i}", page_start=p[0], page_end=p[1],
+        db.add(Chunk(document_id=doc.id, content=text, page_start=p[0], page_end=p[1],
                      start_seconds=starts[i] if starts else None))
     db.commit()
     return doc.id

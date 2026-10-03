@@ -1,13 +1,12 @@
 """Offline checks for spaced repetition: the SM-2 maths, rating cards, and the "due today" list.
 
 Runs the route functions against an in-memory SQLite database (foreign keys on).
-No Postgres, Chroma, network or AI.
+No Postgres, network or AI.
 
 Run from backend/:  .venv/Scripts/python.exe tests/test_spaced_repetition.py
 """
 import os
 import sys
-import tempfile
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -15,10 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-# Never touch the real database, vector store or model hub.
+# Never touch the real database or model hub.
 os.environ.setdefault("DATABASE_URL", "postgresql://offline:offline@127.0.0.1:1/offline")
-os.environ["CHROMA_DIR"] = tempfile.mkdtemp(prefix="sb-test-chroma-")
-os.environ["ANONYMIZED_TELEMETRY"] = "False"
 os.environ["HF_HUB_OFFLINE"] = "1"
 
 from fastapi import HTTPException

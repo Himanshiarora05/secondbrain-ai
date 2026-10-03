@@ -4,23 +4,22 @@ Give documents and merged sets from before user accounts to an account.
 WHY THIS SCRIPT EXISTS
 -----------------------
 Since accounts were added, every endpoint only sees the signed-in user's
-documents (documents.user_id) and search only returns chunks whose Chroma
-metadata carries that user_id. Documents uploaded before then have neither,
-so they're invisible to everyone until they're assigned to an account.
+documents (documents.user_id), and search only looks at chunks of those
+documents. Documents uploaded before then have no owner, so they're invisible
+to everyone until they're assigned to an account.
 
 WHAT IT CHANGES
 ---------------
-For every document with no owner: documents.user_id, and "user_id" in the
-metadata of each of its Chroma vectors. For every merged set with no owner:
-merged_sets.user_id (skipped if a member belongs to someone else). Their
-chunks, summaries and flashcards follow their document. Documents and sets
+For every document with no owner: documents.user_id. For every merged set
+with no owner: merged_sets.user_id (skipped if a member belongs to someone
+else). Their chunks, search vectors, summaries and flashcards follow their
+document. Documents and sets
 that already have an owner are never touched, so running it again is safe.
 
 SAFETY
 ------
-Per document: the Chroma metadata is updated first (the old metadata is kept
-in memory), then the database row is committed; if the commit fails the old
-metadata is put back, so the document is left exactly as it was.
+One transaction per document, under a row lock: it is either assigned or
+left exactly as it was.
 
 USAGE (from backend/, after signing up in the app)
 ---------------------------------------------------
@@ -43,19 +42,20 @@ def find_user(db, email: str):
     return db.query(User).filter(User.email == normalize_email(email)).first()
 
 
-def plan(db, collection) -> dict:
+def plan(db) -> dict:
     """What an assignment would change: unowned documents (with their vector
     counts) and unowned merged sets, split into ones that can be assigned and
     ones that can't (a member document belongs to someone else)."""
-    from app.models.chunk import Chunk
+    from app.models.chunk import Chunk, ChunkEmbedding
     from app.models.document import Document
     from app.models.merged_set import MergedSet, MergedSetDocument
 
     docs = []
     for doc in db.query(Document).filter(Document.user_id.is_(None)).order_by(Document.id.asc()):
-        vectors = collection.get(where={"document_id": doc.id}, include=[])["ids"]
         chunks = db.query(Chunk.id).filter(Chunk.document_id == doc.id).count()
-        docs.append({"id": doc.id, "name": doc.filename, "chunks": chunks, "vectors": len(vectors)})
+        vectors = (db.query(ChunkEmbedding.chunk_id).join(Chunk, Chunk.id == ChunkEmbedding.chunk_id)
+                   .filter(Chunk.document_id == doc.id).count())
+        docs.append({"id": doc.id, "name": doc.filename, "chunks": chunks, "vectors": vectors})
 
     sets, blocked = [], []
     for merged in db.query(MergedSet).filter(MergedSet.user_id.is_(None)).order_by(MergedSet.id.asc()):
@@ -70,8 +70,8 @@ def plan(db, collection) -> dict:
     return {"documents": docs, "sets": sets, "blocked_sets": blocked}
 
 
-def assign_document(db, collection, document_id: int, user_id: int) -> int:
-    """Give one unowned document (and its Chroma vectors) to user_id. Returns the vector count.
+def assign_document(db, document_id: int, user_id: int) -> bool:
+    """Give one unowned document to user_id. Returns False if it already has an owner.
 
     Leaves the document unchanged if anything fails.
     """
@@ -80,22 +80,14 @@ def assign_document(db, collection, document_id: int, user_id: int) -> int:
     doc = db.query(Document).filter(Document.id == document_id, Document.user_id.is_(None)).with_for_update().first()
     if doc is None:
         db.rollback()
-        return 0  # already assigned (e.g. a second run racing this one)
-    stored = collection.get(where={"document_id": document_id}, include=["metadatas"])
-    ids, old = stored["ids"], stored["metadatas"]
-    if ids:
-        collection.update(ids=ids, metadatas=[{**m, "user_id": user_id} for m in old])
+        return False  # already assigned (e.g. a second run racing this one)
     try:
         doc.user_id = user_id
         db.commit()
     except Exception:
         db.rollback()
-        if ids:
-            # Chroma's update merges metadata, so the added key has to be set
-            # back explicitly (None removes it) - writing `old` alone keeps it.
-            collection.update(ids=ids, metadatas=[{**m, "user_id": m.get("user_id")} for m in old])
         raise
-    return len(ids)
+    return True
 
 
 def assign_set(db, set_id: int, user_id: int) -> None:
@@ -114,7 +106,6 @@ def main(argv=None):
 
     from dotenv import load_dotenv
     load_dotenv(Path(__file__).resolve().parent.parent / ".env")
-    from app.database.chroma import get_collection
     from app.database.db import SessionLocal
 
     db = SessionLocal()
@@ -123,8 +114,7 @@ def main(argv=None):
         if user is None:
             print(f"No account with the email {args.email!r}. Sign up in the app first, then run this again.")
             return 2
-        collection = get_collection()
-        todo = plan(db, collection)
+        todo = plan(db)
 
         print(f"{'APPLY' if args.apply else 'DRY RUN'}: assign to #{user.id} {user.email}\n")
         print(f"  {len(todo['documents'])} document(s) without an owner:")
@@ -146,8 +136,9 @@ def main(argv=None):
         done, vectors, failed = 0, 0, 0
         for d in todo["documents"]:
             try:
-                vectors += assign_document(db, collection, d["id"], user.id)
-                done += 1
+                if assign_document(db, d["id"], user.id):
+                    done += 1
+                    vectors += d["vectors"]
             except Exception as e:
                 failed += 1
                 print(f"  FAILED #{d['id']}, left unchanged: {e}")

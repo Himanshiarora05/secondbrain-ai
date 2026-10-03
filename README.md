@@ -29,19 +29,21 @@ Old `.ppt` and `.doc` files aren't supported; save them as `.pptx` / `.docx` fir
 
 | Part | Stack |
 |---|---|
-| `backend/` | FastAPI, PostgreSQL (documents, chunks, summaries, flashcards), Chroma (vector search), `all-MiniLM-L6-v2` embeddings, OpenRouter for the AI model |
+| `backend/` | FastAPI, PostgreSQL with pgvector (documents, chunks and their search vectors, summaries, flashcards), `all-MiniLM-L6-v2` embeddings through fastembed (ONNX), OpenRouter for the AI model |
 | `frontend/` | React 19, Vite, TypeScript, Tailwind CSS v4 |
 
 The frontend's dev server forwards `/api` requests to the backend on port 8000, so run both.
+
+To put it online for free (Neon for the database, Render for the backend, Vercel for the frontend), see [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Prerequisites
 
 - **Python 3.11**
 - **Node.js 20.19+ or 22.12+** (required by Vite 8)
-- **PostgreSQL** running locally or somewhere you can reach
+- **PostgreSQL with the [pgvector](https://github.com/pgvector/pgvector) extension**, which stores the search vectors. A free [Neon](https://neon.tech) database has it built in; a local server needs pgvector installed (the app runs `CREATE EXTENSION vector` itself).
 - **An OpenRouter API key**: get one at [openrouter.ai](https://openrouter.ai). It's used for summaries, flashcards, and answers, and the backend won't start without it.
 
-The Python dependencies are large (PyTorch and other ML libraries), so the first install can take a while and several GB of disk space. The first upload or search also downloads the embedding model (about 90 MB) from Hugging Face.
+The first upload or search downloads the embedding model (about 90 MB) from Hugging Face.
 
 ## Setup
 
@@ -54,7 +56,7 @@ cd secondbrain-ai
 
 ### 2. Create the database
 
-Create an empty PostgreSQL database. The app creates its tables itself on first start.
+Create an empty PostgreSQL database on a server with pgvector (or a Neon project or branch, whose connection string you use in the next step). The app creates the extension and its tables itself on first start.
 
 ```bash
 createdb secondbrain
@@ -77,7 +79,8 @@ Then edit `backend/.env`:
 |---|---|
 | `DATABASE_URL` | Your Postgres connection string, e.g. `postgresql+psycopg2://postgres:<your password>@localhost:5432/secondbrain`. **Required**: the backend won't start without it. |
 | `OPENROUTER_API_KEY` | Your OpenRouter key. **Required**: the backend won't start without it. |
-| `CHROMA_DIR` | Where the vector index is stored. The default `vector_db` is fine. |
+| `FASTEMBED_CACHE_PATH` | Where the embedding model files are kept. Default: the system temp folder. |
+| `EMBEDDING_THREADS` | CPU threads for embedding. Default `1`. |
 | `SQL_ECHO` | `true` logs every SQL statement (noisy; for debugging). Default `false`. |
 | `ALLOW_SIGNUP` | `false` closes sign-up once your account exists; existing accounts can still log in. Default `true`. |
 | `SESSION_COOKIE_SECURE` | `true` sends the login cookie over HTTPS only. Set it when the app is served over HTTPS; leave it off for `http://localhost`. Default `false`. |
@@ -131,7 +134,7 @@ Use two terminals.
 python -m uvicorn main:app --reload
 ```
 
-Run it from `backend/`: uploaded files (`uploads/`) and the vector index (`vector_db/`) are stored relative to the current folder. The API runs on http://127.0.0.1:8000, with interactive API docs at http://127.0.0.1:8000/docs.
+Run it from `backend/`: uploaded files (`uploads/`) are stored relative to the current folder. The API runs on http://127.0.0.1:8000, with interactive API docs at http://127.0.0.1:8000/docs.
 
 **Frontend** (from `frontend/`):
 

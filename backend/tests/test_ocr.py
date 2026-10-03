@@ -1,5 +1,5 @@
 """Offline checks for text recognition (OCR): scanned PDF pages and image uploads
-(AI client mocked, temp uploads dir, storage mocked; no DB, Chroma data or network).
+(AI client mocked, temp uploads dir, storage mocked; no DB or network).
 
 Run from backend/:  .venv/Scripts/python.exe tests/test_ocr.py
 """
@@ -20,8 +20,6 @@ if hasattr(sys.stdout, "reconfigure"):
 
 # Never touch the real database, vector store, model hub or OpenRouter.
 os.environ.setdefault("DATABASE_URL", "postgresql://offline:offline@127.0.0.1:1/offline")
-os.environ["CHROMA_DIR"] = tempfile.mkdtemp(prefix="sb-test-chroma-")
-os.environ["ANONYMIZED_TELEMETRY"] = "False"
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 
@@ -374,15 +372,13 @@ def test_image_documents_cite_pages():
 
 
 def test_search_gives_image_matches_a_page():
+    from types import SimpleNamespace as NS
     from app.services import search_service
-    fake = MagicMock()
-    fake.query.return_value = {
-        "ids": [["9-0"]], "documents": [["text"]], "distances": [[0.2]],
-        "metadatas": [[{"filename": "board.jpg", "source_type": "image", "page_start": 2, "page_end": 2}]],
-    }
-    with patch.object(search_service, "get_collection", return_value=fake), \
+    rows = [(NS(content="text", page_start=2, page_end=2, start_seconds=None),
+             NS(filename="board.jpg", source_type="image", source_url=None), 0.2)]
+    with patch.object(search_service, "nearest_chunks", return_value=rows), \
          patch.object(search_service, "get_embedding", return_value=[0.0] * 3):
-        results = search_service.search_similar_chunks("q", 1)
+        results = search_service.search_similar_chunks(MagicMock(), "q", 1)
     assert results[0][6] == "p. 2", results
 
 

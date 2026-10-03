@@ -5,7 +5,6 @@ Run from backend/:  .venv/Scripts/python.exe tests/test_summary_retries.py
 import os
 import sys
 import threading
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -13,11 +12,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-# Never touch the real database, vector store or model hub.
+# Never touch the real database or model hub.
 os.environ.setdefault("DATABASE_URL", "postgresql://offline:offline@127.0.0.1:1/offline")
 os.environ.setdefault("OPENROUTER_API_KEY", "offline-test-key")
-os.environ["CHROMA_DIR"] = tempfile.mkdtemp(prefix="sb-test-chroma-")
-os.environ["ANONYMIZED_TELEMETRY"] = "False"
 os.environ["HF_HUB_OFFLINE"] = "1"
 
 import httpx

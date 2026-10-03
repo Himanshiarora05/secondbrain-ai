@@ -7,7 +7,6 @@ import json
 import os
 import re
 import sys
-import tempfile
 import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -19,8 +18,6 @@ if hasattr(sys.stdout, "reconfigure"):
 
 # Never touch the real database, vector store, model hub or email account.
 os.environ["DATABASE_URL"] = "postgresql://offline:offline@127.0.0.1:1/offline"
-os.environ["CHROMA_DIR"] = tempfile.mkdtemp(prefix="sb-test-chroma-")
-os.environ["ANONYMIZED_TELEMETRY"] = "False"
 os.environ["HF_HUB_OFFLINE"] = "1"
 for key in ("BREVO_API_KEY", "EMAIL_FROM", "EMAIL_FROM_NAME", "APP_BASE_URL", "PASSWORD_RESET_MINUTES"):
     os.environ.pop(key, None)

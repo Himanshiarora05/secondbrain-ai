@@ -3,8 +3,8 @@ Complete live verification script for Prompt 2:
 - Database schema migration check (no NULL source_type)
 - youtube-transcript-api version and API style verification
 - Regression test on PDF search
-- Real PPTX upload + Postgres/Chroma verification + negative test
-- Real DOCX upload + Postgres/Chroma verification + negative test
+- Real PPTX upload + Postgres verification + negative test
+- Real DOCX upload + Postgres verification + negative test
 - Real YouTube upload + timestamp link in search + negative test
 - Summary & flashcards generation on new source
 """
@@ -29,7 +29,6 @@ from fastapi.testclient import TestClient
 
 from main import app
 from app.database.db import SessionLocal, init_db
-from app.database.chroma import get_collection
 from app.models.document import Document
 from app.models.chunk import Chunk
 
@@ -119,7 +118,7 @@ def run_tests():
     assert pptx_data["source_type"] == "pptx"
     pptx_doc_id = pptx_data["document_id"]
 
-    # Verify in DB and Chroma
+    # Verify in DB
     db = SessionLocal()
     try:
         p_doc = db.query(Document).filter(Document.id == pptx_doc_id).first()

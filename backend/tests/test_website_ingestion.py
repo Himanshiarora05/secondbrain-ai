@@ -1,4 +1,4 @@
-"""Offline checks for website link ingestion (no network, no DB, no Chroma data, no LLM).
+"""Offline checks for website link ingestion (no network, no DB, no LLM).
 
 Every socket connect and DNS lookup is replaced with one that fails the test,
 DNS answers come from a patched url_safety._lookup, and HTTP responses come
@@ -10,7 +10,6 @@ import json
 import os
 import socket
 import sys
-import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -18,10 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-# Never touch the real database, vector store or model hub.
+# Never touch the real database or model hub.
 os.environ.setdefault("DATABASE_URL", "postgresql://offline:offline@127.0.0.1:1/offline")
-os.environ["CHROMA_DIR"] = tempfile.mkdtemp(prefix="sb-test-chroma-")
-os.environ["ANONYMIZED_TELEMETRY"] = "False"
 os.environ["HF_HUB_OFFLINE"] = "1"
 
 
@@ -565,21 +562,18 @@ def test_endpoint_maps_errors_to_http():
 # ─── Linking back to the page ───
 
 def test_search_returns_source_url_for_websites():
-    collection = MagicMock()
-    collection.query.return_value = {
-        "ids": [["1-0", "2-0"]],
-        "documents": [["web text", "video text"]],
-        "metadatas": [[
-            {"filename": "Photosynthesis Explained", "source_type": "website",
-             "source_url": "https://www.example.com/article"},
-            {"filename": "YouTube: abcdefghijk", "source_type": "youtube",
-             "source_url": "https://www.youtube.com/watch?v=abcdefghijk", "start_seconds": 46},
-        ]],
-        "distances": [[0.1, 0.2]],
-    }
-    with patch.object(search_service, "get_collection", return_value=collection), \
+    from types import SimpleNamespace as NS
+    rows = [
+        (NS(content="web text", page_start=None, page_end=None, start_seconds=None),
+         NS(filename="Photosynthesis Explained", source_type="website",
+            source_url="https://www.example.com/article"), 0.1),
+        (NS(content="video text", page_start=None, page_end=None, start_seconds=46),
+         NS(filename="YouTube: abcdefghijk", source_type="youtube",
+            source_url="https://www.youtube.com/watch?v=abcdefghijk"), 0.2),
+    ]
+    with patch.object(search_service, "nearest_chunks", return_value=rows), \
          patch.object(search_service, "get_embedding", return_value=[0.0]):
-        results = search_service.search_similar_chunks("light reactions", TEST_USER.id)
+        results = search_service.search_similar_chunks(MagicMock(), "light reactions", TEST_USER.id)
     web, video = results
     assert web[2:] == ("Photosynthesis Explained", None, "website", "https://www.example.com/article", None)
     assert video[3] == "https://www.youtube.com/watch?v=abcdefghijk&t=46s" and video[4] == "youtube"

@@ -18,7 +18,6 @@ from youtube_transcript_api import YouTubeTranscriptApi
 
 from main import app
 from app.database.db import SessionLocal
-from app.database.chroma import get_collection
 from app.models.document import Document
 from app.models.chunk import Chunk
 
@@ -101,27 +100,18 @@ def run_e2e_verification():
 
         # Query Chunk rows
         chunk_rows = db.execute(
-            text("SELECT id, chroma_id, start_seconds, content FROM chunks WHERE document_id = :id ORDER BY id ASC"),
+            text("SELECT c.id, e.chunk_id IS NOT NULL, c.start_seconds, c.content FROM chunks c "
+                 "LEFT JOIN chunk_embeddings e ON e.chunk_id = c.id WHERE c.document_id = :id ORDER BY c.id ASC"),
             {"id": doc_id}
         ).fetchall()
         
         print(f"\nChunk Rows in PostgreSQL (Total: {len(chunk_rows)}):")
         for i, c in enumerate(chunk_rows[:4]):
             preview = c[3][:90].replace("\n", " ")
-            print(f"  Chunk #{i+1} (id={c[0]}, chroma_id='{c[1]}', start_seconds={c[2]}):")
+            print(f"  Chunk #{i+1} (id={c[0]}, has search vector={c[1]}, start_seconds={c[2]}):")
             print(f"    Preview: \"{preview}...\"")
 
-        # Query Chroma collection
-        collection = get_collection()
-        chroma_ids = [str(c[1]) for c in chunk_rows]
-        chroma_res = collection.get(ids=chroma_ids[:3], include=["embeddings", "documents", "metadatas"])
-        
-        print(f"\nChroma Direct Query for first 3 Chunk IDs:")
-        print(f"  Retrieved IDs: {chroma_res['ids']}")
-        for cid, meta, emb in zip(chroma_res['ids'], chroma_res['metadatas'], chroma_res['embeddings']):
-            print(f"  Chroma ID: {cid}")
-            print(f"    Metadata: {meta}")
-            print(f"    Embedding dimension: {len(emb)} (non-empty vector: {emb[:3]}...)")
+        assert all(c[1] for c in chunk_rows), "every chunk should have a search vector"
 
     finally:
         db.close()

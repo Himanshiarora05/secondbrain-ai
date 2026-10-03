@@ -55,6 +55,19 @@ def init_db():
     """
     from sqlalchemy import text
     from app.models import document, chunk, summary, flashcard, merged_set, user, quiz  # noqa: F401  (registers models on Base)
+    # Search vectors live in chunk_embeddings (pgvector); the extension must
+    # exist before create_all makes that table. Neon and most hosted Postgres
+    # ship it; a local server needs pgvector installed.
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+    except Exception as e:
+        raise RuntimeError(
+            "Couldn't enable the pgvector extension (CREATE EXTENSION vector) on this "
+            "Postgres server. Search vectors are stored with pgvector: use a server "
+            "that has it (Neon does; for local development a free Neon branch works) "
+            "or install pgvector on this one. See docs/DEPLOY.md."
+        ) from e
     Base.metadata.create_all(bind=engine)
 
     # Database-level migrations for multi-source ingestion with explicit defaults
@@ -84,6 +97,8 @@ def init_db():
                 "ALTER TABLE chunks ADD COLUMN IF NOT EXISTS start_seconds INTEGER;"
             )
         )
+        # Search finds a user's chunks through their documents.
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chunks_document_id ON chunks (document_id);"))
         conn.execute(
             text(
                 "ALTER TABLE chunks ADD COLUMN IF NOT EXISTS page_start INTEGER;"
