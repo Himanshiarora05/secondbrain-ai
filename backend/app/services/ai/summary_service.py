@@ -227,7 +227,7 @@ Summary Notes:"""
     return _complete(
         "summarizing a section",
         [
-            {"role": "system", "content": "You are a concise academic tutor extracting high-yield study points."},
+            {"role": "system", "content": "You are a concise academic tutor extracting high-yield study points. " + SOURCE_ONLY_RULE},
             {"role": "user", "content": prompt},
         ],
         temperature=0.3,
@@ -338,7 +338,7 @@ def _split_long(text: str, size: int) -> List[str]:
 
 
 def _condense(notes: str, cite: bool) -> str:
-    system = "You are a concise academic tutor combining study notes into fewer, denser notes."
+    system = "You are a concise academic tutor combining study notes into fewer, denser notes. " + SOURCE_ONLY_RULE
     if cite:
         system += " " + CITATION_RULE
     user = (
@@ -409,7 +409,7 @@ def generate_summary(document_text: str) -> str:
     else:
         source_content = cleaned_text
 
-    return plain_inline_math(_final_summary(source_content, SUMMARY_SYSTEM_PROMPT))
+    return ensure_heading(plain_inline_math(_final_summary(source_content, SUMMARY_SYSTEM_PROMPT)))
 
 
 # Inline LaTeX "\(|V|\)": the page doesn't render maths, and Markdown drops
@@ -422,19 +422,39 @@ def plain_inline_math(text: str) -> str:
     return _INLINE_MATH_RE.sub(lambda m: m.group(1).strip(), text)
 
 
+# Models fill gaps in short or scanned notes from what they already know
+# (e.g. adding the insertion cases a page never lists), so every call that
+# writes notes or a summary gets this.
+SOURCE_ONLY_RULE = (
+    "Use only what the material says: never add facts, steps, cases, examples or explanations "
+    "from general knowledge, even if the material seems incomplete. Never write about what the "
+    "material doesn't explain, define or cover."
+)
+
 SUMMARY_SYSTEM_PROMPT = (
     "You are an expert study assistant creating an exam revision summary.\n"
     "Guidelines:\n"
-    "1. Structure with clear Markdown headings and bullet points.\n"
+    "1. Start with a '## ' heading naming the topic, then structure with Markdown headings and bullet points.\n"
     "2. Prominently highlight key definitions and essential formulas/equations.\n"
-    "3. Where the material introduces something but explains it incompletely (e.g. names a term without "
-    "defining it, or states a result without saying when it applies), note it briefly (e.g. 'Note: the "
-    "slides name X but don't explain it'). Only flag what the material itself mentions; never list topics "
-    "it doesn't cover.\n"
+    "3. " + SOURCE_ONLY_RULE + " No notes, sections or sentences about gaps or missing information.\n"
     "4. Keep the entire summary concise and strictly under 600 words.\n"
     "5. Output clean Markdown only. Write formulas in plain text or Unicode (e.g. x₁ + x₂, |V|, v = (x, y)), "
     "not LaTeX."
 )
+
+
+def ensure_heading(summary: str) -> str:
+    """Make the summary start with a '## ' heading, whatever the model wrote first.
+
+    A leading '#' or '###' heading becomes '## '; anything else gets a
+    '## Summary' heading in front.
+    """
+    text = summary.strip()
+    first, _, rest = text.partition("\n")
+    match = re.match(r"#{1,6}\s+(\S.*)$", first)
+    if match:
+        return f"## {match.group(1).strip()}" + (f"\n{rest}" if rest else "")
+    return f"## Summary\n\n{text}" if text else "## Summary"
 
 
 def _final_summary(source_content: str, system_prompt: str, max_tokens: int = 900) -> str:
@@ -491,8 +511,34 @@ CITATION_RULE = (
     "exactly as written, e.g. '- Photosynthesis happens in chloroplasts [S3]' "
     "or '... [S3][S7]'. Write every label in full ('[S3][S4][S5]'), never a range like '[S3-S5]'. "
     "Never write times, timestamps, page numbers or slide numbers yourself; use only the labels. "
-    "The labels are only for citing: never mention them (or S0, S1, ...) as words in a sentence."
+    "The labels are only for citing: never mention them (or S0, S1, ...) as words in a sentence. "
+    "Each label goes at the end of the bullet it supports; never collect labels into a list, line "
+    "or 'Sources' section of their own."
 )
+
+# A line that is only labels ("[S0][S1][S2]", "- Sources: [S0, S1]") or a
+# "Sources" / "References" heading: the model gathered its citations at the
+# end instead of on each point. Such a list says nothing about which point
+# came from where, so it's dropped (see drop_citation_lists).
+_LIST_WORDS = r"\**(?:sources?|references?|citations?)\s*:?\**\s*:?"
+_LABEL_ONLY_LINE_RE = re.compile(
+    rf"^\s*(?:[-*+]\s+|\d+[.)]\s+)?(?:{_LIST_WORDS}\s*)?(?:{_LABEL}[\s,;.]*)+$", re.IGNORECASE
+)
+_LIST_HEADING_RE = re.compile(rf"^\s*(?:#{{1,6}}\s*)?{_LIST_WORDS}\s*$", re.IGNORECASE)
+
+
+def drop_citation_lists(text: str) -> str:
+    """Remove lines that are only citation labels, and a Sources/References
+    heading left with nothing under it. Labels inside a point are kept."""
+    lines = [line for line in text.split("\n") if not _LABEL_ONLY_LINE_RE.match(line)]
+    kept = []
+    for i, line in enumerate(lines):
+        if _LIST_HEADING_RE.match(line):
+            following = next((l for l in lines[i + 1:] if l.strip()), None)
+            if following is None or following.lstrip().startswith("#"):
+                continue
+        kept.append(line)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
 
 # (label, url) for a chunk: url is None for citations that aren't links (pages, slides).
 Citation = Optional[Tuple[str, Optional[str]]]
@@ -575,7 +621,8 @@ def _summarize_labelled_batch(labelled_text: str) -> str:
     return _complete(
         "summarizing a section",
         [
-            {"role": "system", "content": "You are a concise academic tutor extracting high-yield study points. " + CITATION_RULE},
+            {"role": "system", "content": "You are a concise academic tutor extracting high-yield study points. "
+                                          + SOURCE_ONLY_RULE + " " + CITATION_RULE},
             {"role": "user", "content": f"Extract key concepts, definitions, formulas, and main points as bullet points.\n\nText:\n{labelled_text}\n\nSummary Notes:"},
         ],
         temperature=0.3,
@@ -619,7 +666,7 @@ def generate_cited_summary(chunks: List[str], citations: List[Citation]) -> str:
         + " Keep the labels from the material when you combine or rephrase points."
     )
     summary = _final_summary(source_content, system_prompt)
-    return plain_inline_math(replace_labels(summary, citations))
+    return ensure_heading(plain_inline_math(replace_labels(drop_citation_lists(summary), citations)))
 
 
 def generate_youtube_summary(chunks: List[Tuple[int, str]], source_url: str) -> str:

@@ -59,7 +59,7 @@ def test_temporary_failures_are_retried():
     for first in (status_error(503), status_error(429), status_error(500), overloaded_in_body(),
                   openai.APITimeoutError(request=REQ), openai.APIConnectionError(request=REQ)):
         client = client_with(first, reply("- Mitochondria make ATP."))
-        assert summarize(client) == "- Mitochondria make ATP.", type(first).__name__
+        assert summarize(client) == "## Summary\n\n- Mitochondria make ATP.", type(first).__name__
         assert client.chat.completions.create.call_count == 2
 
 
@@ -117,7 +117,7 @@ def test_empty_reply_is_not_retried():
 def test_waits_a_little_longer_each_time():
     client = client_with(status_error(503), status_error(503), reply("ok"))
     with patch.object(ss, "client", client), patch.object(ss.time, "sleep") as sleep, patch.object(ss, "logger"):
-        assert ss.generate_summary("Short text.") == "ok"
+        assert ss.generate_summary("Short text.") == "## Summary\n\nok"
     assert [c.args[0] for c in sleep.call_args_list] == [ss.RETRY_DELAY_SECONDS, 2 * ss.RETRY_DELAY_SECONDS]
 
 
