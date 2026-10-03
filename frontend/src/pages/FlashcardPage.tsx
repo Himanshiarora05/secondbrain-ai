@@ -23,6 +23,7 @@ import {
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { sourceBadge, MERGED_BADGE_STYLE } from '../components/library/sourceBadge'
 import { MergedSetMembers, MergedSetNotices } from '../components/library/MergedSetHeader'
+import { StudyTabs } from '../components/library/StudyTabs'
 import { FlipCard } from '../components/library/FlipCard'
 import { ReviewButtons } from '../components/library/ReviewButtons'
 import { GRADE_KEYS, dueLabel, nextReviewText } from '../components/library/reviewSchedule'
@@ -241,7 +242,7 @@ export function FlashcardPage({ merged = false }: { merged?: boolean }) {
   return (
     <div className="flex flex-col w-full max-w-4xl mx-auto animate-fade-in pb-16 min-w-0">
       {/* Navigation Breadcrumb */}
-      <div className="mb-6">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <Link
           to="/library"
           className="inline-flex items-center gap-2 text-xs font-medium text-[#A1A1AA] hover:text-white transition-all duration-200 px-3.5 py-2 rounded-xl bg-[rgba(255,255,255,0.03)] backdrop-blur-md border border-[rgba(255,255,255,0.08)] hover:border-[rgba(59,130,246,0.3)] hover:bg-[rgba(255,255,255,0.06)]"
@@ -249,6 +250,7 @@ export function FlashcardPage({ merged = false }: { merged?: boolean }) {
           <ArrowLeft size={14} />
           <span>Back to Library</span>
         </Link>
+        {!isNaN(docIdNum) && <StudyTabs id={docIdNum} merged={merged} current="flashcards" />}
       </div>
 
       {/* Header Panel */}
