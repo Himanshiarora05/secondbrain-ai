@@ -37,7 +37,7 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_OCR_MODEL = "google/gemma-4-31b-it:free"
+DEFAULT_OCR_MODEL = "qwen/qwen3.8-27b:free"
 OCR_MODEL = os.getenv("OCR_MODEL", "").strip() or DEFAULT_OCR_MODEL
 
 # Pages (scanned PDF pages, or images) read by OCR in one upload: one AI call

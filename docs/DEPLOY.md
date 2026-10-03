@@ -135,7 +135,9 @@ Steps:
 
    Already set by the Blueprint: `SESSION_COOKIE_SECURE=true` (Vercel serves
    HTTPS), `ALLOW_SIGNUP=true`, `EMBEDDING_THREADS=1`, `FASTEMBED_CACHE_PATH`,
-   `PYTHON_VERSION`.
+   `PYTHON_VERSION`, and the free AI models `OPENROUTER_MODEL=nvidia/nemotron-3-super-120b-a12b:free`
+   and `OCR_MODEL=qwen/qwen3.8-27b:free` (change them in `render.yaml` and push
+   if one disappears from OpenRouter).
 4. **Apply.** The first build takes a few minutes. Then open the service's URL
    plus `/api/v1/health`, e.g. `https://secondbrain-api.onrender.com/api/v1/health`
    → `{"status":"healthy",…}`. The URL is at the top of the service page (if the
@@ -145,7 +147,6 @@ Steps:
    | Name | Value |
    |---|---|
    | `BREVO_API_KEY` (+ `EMAIL_FROM`, `EMAIL_FROM_NAME`) | password reset emails through Brevo; without it, reset links are printed in the service's **Logs** |
-   | `OPENROUTER_MODEL`, `OCR_MODEL` | see `backend/.env.example` |
    | `MERGED_MAX_CHARS`, `MERGED_MAX_DOC_CHARS`, `SUMMARY_PARALLEL_CALLS`, `NEW_CARDS_PER_DAY`, `PASSWORD_RESET_MINUTES` | defaults as in `backend/.env.example` |
 
 Every push to `main` redeploys the backend (`autoDeploy: true`).

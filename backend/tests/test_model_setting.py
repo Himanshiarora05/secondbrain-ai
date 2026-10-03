@@ -41,7 +41,8 @@ def test_default_model_when_unset_or_blank():
         if value is not None:
             env["OPENROUTER_MODEL"] = value
         with patch.dict(os.environ, env, clear=True):
-            assert ss.configured_model() == "openai/gpt-4o-mini", repr(value)
+            assert ss.configured_model() == "nvidia/nemotron-3-super-120b-a12b:free", repr(value)
+    assert ss.DEFAULT_MODEL.endswith(":free")  # never fall back to a paid model
 
 
 def test_setting_overrides_and_is_trimmed():

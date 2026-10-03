@@ -29,6 +29,12 @@ services:
         value: "true"
       - key: ALLOW_SIGNUP
         value: "true"
+      # Free OpenRouter models (the same as the code defaults); change them here
+      # if one disappears from OpenRouter.
+      - key: OPENROUTER_MODEL
+        value: nvidia/nemotron-3-super-120b-a12b:free
+      - key: OCR_MODEL
+        value: qwen/qwen3.8-27b:free
       - key: DATABASE_URL
         sync: false
       - key: OPENROUTER_API_KEY
