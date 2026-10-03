@@ -120,7 +120,7 @@ Windows Postgres usually doesn't have pgvector. Two options:
 
 Steps:
 
-1. **Set the region first.** In `render.yaml`, `region: virginia` must match your
+1. **Set the region first.** In `render.yaml`, `region: singapore` must match your
    Neon region (step 1). A service's region can't be changed later. Commit and
    push if you change it.
 2. Sign up at <https://render.com> with GitHub. **New → Blueprint**, pick this

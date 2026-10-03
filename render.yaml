@@ -10,7 +10,7 @@ services:
     # Fixed when the service is created: pick the region closest to your Neon
     # database (Neon AWS us-east-1 -> virginia, eu-central-1 -> frankfurt,
     # ap-southeast-1 -> singapore, us-west-2 -> oregon).
-    region: virginia
+    region: singapore
     rootDir: backend
     # The embedding model (~90 MB) is downloaded at build time into the build
     # output, since the free plan's disk is wiped on every restart.
