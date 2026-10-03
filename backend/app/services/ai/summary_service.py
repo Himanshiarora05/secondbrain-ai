@@ -90,17 +90,19 @@ client = OpenAI(
     timeout=30,
 )
 
-# gpt-4o-mini: cheaper than gpt-3.5-turbo ($0.15 / $0.60 per million tokens vs $0.50 / $1.50),
-# a 128k-token context (vs 16k) and up to 16k output tokens (vs 4k).
-DEFAULT_MODEL = "openai/gpt-4o-mini"
+# A free model, so nothing falls back to a paid one: 262k-token context, valid JSON
+# (flashcards, quizzes) and quick replies in a 2026-10 comparison. Free models come
+# and go on OpenRouter; if it disappears (404 "model isn't available"), set
+# OPENROUTER_MODEL to another ":free" model.
+DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
 
 
 def configured_model() -> str:
     """The OpenRouter model for summaries, flashcards and search answers.
 
-    OPENROUTER_MODEL in backend/.env overrides the default (e.g. a ":free" model
-    for testing); remove it to go back. Read once at import, so a change needs
-    a backend restart (--reload doesn't watch .env).
+    OPENROUTER_MODEL in backend/.env overrides the default (e.g. a paid model
+    for higher limits); remove it to go back. Read once at import, so a change
+    needs a backend restart (--reload doesn't watch .env).
     """
     return os.getenv("OPENROUTER_MODEL", "").strip() or DEFAULT_MODEL
 

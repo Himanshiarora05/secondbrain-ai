@@ -90,8 +90,8 @@ Then edit `backend/.env`:
 | `PASSWORD_RESET_MINUTES` | How long a reset link works. Default `30`. |
 | `MERGED_MAX_CHARS` | The most text a merged set can hold. Default `300000`. Bigger sets take longer and cost more to summarise. |
 | `SUMMARY_PARALLEL_CALLS` | How many AI calls a long summary runs at once. Default `4`; lower it if you hit rate limits. |
-| `OPENROUTER_MODEL` | The AI model. Default `openai/gpt-4o-mini`; a `:free` model works for testing without credits. |
-| `OCR_MODEL` | The model that reads scanned PDF pages and images. It must accept images. Default `google/gemma-4-31b-it:free`. Free models come and go on OpenRouter: if uploads say the model isn't available, pick another model with image input at [openrouter.ai/models](https://openrouter.ai/models). |
+| `OPENROUTER_MODEL` | The AI model. Default `nvidia/nemotron-3-super-120b-a12b:free`, a free model, so no credits are needed. |
+| `OCR_MODEL` | The model that reads scanned PDF pages and images. It must accept images. Default `qwen/qwen3.8-27b:free`. Free models come and go on OpenRouter: if uploads say the model isn't available, pick another model with image input at [openrouter.ai/models](https://openrouter.ai/models). |
 
 `.env` is in `.gitignore`. Never commit it.
 
