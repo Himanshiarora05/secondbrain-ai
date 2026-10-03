@@ -7,7 +7,7 @@ Run from backend/:  .venv/Scripts/python.exe tests/test_spaced_repetition.py
 """
 import os
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -31,7 +31,9 @@ from app.routes import study, merged_sets
 from app.routes.review import ReviewRequest
 from app.services.spaced_repetition import review, local_today, MIN_EASE, MAX_INTERVAL_DAYS
 
-TODAY = date(2026, 10, 2)
+# The server's UTC date, as the routes use it: they only accept a browser date within a day
+# of it (local_today), so a fixed date here would make the route tests fail as time passes.
+TODAY = datetime.utcnow().date()
 
 
 # ─── SM-2 maths ───
