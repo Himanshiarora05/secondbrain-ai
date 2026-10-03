@@ -63,6 +63,8 @@ OCR_PROMPT = (
     "Transcribe all the text in this image exactly as written, in reading order. "
     "Keep headings, lists and line breaks; write tables row by row and formulas in plain text. "
     "Don't describe, summarise or correct anything, and don't add any commentary. "
+    "Transcribe only the actual notes: leave out browser and app interface text "
+    "(such as \"Press Esc to exit full screen\", tabs, toolbars and menus), watermarks and logos. "
     "If the image contains no text, reply with nothing at all."
 )
 
