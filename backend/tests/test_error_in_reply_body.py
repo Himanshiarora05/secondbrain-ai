@@ -135,7 +135,7 @@ def test_search_explains_an_overloaded_provider():
 def test_normal_replies_are_unchanged():
     client, _ = sdk_client(ok_body("- A graph is (V, E) [S0]"))
     with patch.object(ss, "client", client):
-        assert ss.generate_cited_summary(["chunk a"], PAGES) == "- A graph is (V, E) (p. 1)"
+        assert ss.generate_cited_summary(["chunk a"], PAGES) == "## Summary\n\n- A graph is (V, E) (p. 1)"
 
 
 if __name__ == "__main__":

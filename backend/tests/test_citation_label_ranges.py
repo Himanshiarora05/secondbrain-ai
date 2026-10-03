@@ -76,7 +76,7 @@ def test_prompt_forbids_ranges_and_labels_as_words():
     llm.chat.completions.create.side_effect = create
     with patch.object(ss, "client", llm):
         out = ss.generate_cited_summary(["Graphs are pairs.", "Vertices and edges."], PAGES[:2])
-    assert out == "- Graphs (pp. 1–2; pp. 3–4)", out
+    assert out == "## Summary\n\n- Graphs (pp. 1–2; pp. 3–4)", out
     assert "never a range" in seen[0] and "never mention them" in seen[0]
 
 

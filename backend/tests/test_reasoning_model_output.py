@@ -67,7 +67,7 @@ def test_cited_summary_with_escaped_labels():
     client = replying_client("# Graphs\n- A graph is (V, E) \\[S0\\]\n- Edges join vertices \\[S1\\]\\[S2\\]")
     with patch.object(ss, "client", client):
         out = ss.generate_cited_summary(["chunk 0", "chunk 1", "chunk 2"], PAGES)
-    assert out == "# Graphs\n- A graph is (V, E) (p. 1)\n- Edges join vertices (pp. 2–3; p. 4)", out
+    assert out == "## Graphs\n- A graph is (V, E) (p. 1)\n- Edges join vertices (pp. 2–3; p. 4)", out
 
 
 def test_calls_leave_room_for_reasoning():
@@ -88,7 +88,7 @@ def test_calls_leave_room_for_reasoning():
 def test_cut_off_reply_is_logged_but_kept():
     client = replying_client("- A point that stops mid", finish_reason="length")
     with patch.object(ss, "client", client), patch.object(ss, "logger") as log:
-        assert ss.generate_summary("Short text.") == "- A point that stops mid"
+        assert ss.generate_summary("Short text.") == "## Summary\n\n- A point that stops mid"
     assert any("length limit" in str(c) for c in log.warning.call_args_list), log.warning.call_args_list
 
     client = replying_client('[{"question": "Q?", "answer": "A"}]', finish_reason="length")
