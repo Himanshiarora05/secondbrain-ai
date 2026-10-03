@@ -1,5 +1,6 @@
 """Offline checks for merged summaries: numbered citations, the sources list, per-source map
-batches, and the save rules (mocked LLM, in-memory SQLite, no network).
+batches, the summary rules (cite on each point, nothing from outside the sources, a '## '
+heading after the sources list) and the save rules (mocked LLM, in-memory SQLite, no network).
 
 Run from backend/:  .venv/Scripts/python.exe tests/test_merged_summary.py
 """
@@ -149,13 +150,53 @@ def test_small_set_is_one_call_with_numbered_citations():
     sources, body = out.split("\n\n---\n\n")
     assert sources.startswith("**Sources**\n\n1. Graph\\_PPT.pdf — PDF")
     assert body.splitlines() == [
-        "# Revision",
+        "## Revision",
         f"- Graphs are pairs, also shown in the video [3: 02:05]({VIDEO}&t=125s) (1: p. 1)",
         "- Degree and qubits (1: pp. 2–3; 2: Slide 4)",
         f"- Cells have nuclei [4]({PAGE})",
         "- From the Word notes (5)",
         "- Made-up",
     ], body
+
+
+def test_prompt_compares_sources_but_adds_nothing_and_flags_no_shared_gaps():
+    p = mg.MERGED_SYSTEM_PROMPT
+    assert "where one explains something another leaves out" in p, "comparison between sources stays"
+    assert ss.NO_OUTSIDE_FACTS_RULE in p and "general knowledge" in p
+    assert "Never write about what none of the sources explain, define or cover" in p
+    assert "doesn't explain, define or cover" not in p, "not the single-document wording, which would forbid comparison"
+    assert "Start with a '## ' heading" in p
+    assert "end of the bullet it supports" in p and "never collect labels" in p
+
+
+def test_map_calls_also_stick_to_the_material():
+    big = MergedSource(1, "big.pdf", "pdf", None, [f"Big chunk {i}. " + "x" * 900 for i in range(8)],
+                       [(f"p. {i + 1}", None) for i in range(8)], document_id=1)
+    small = MergedSource(2, "small.pptx", "pptx", None, ["[Slide 1] Short."], [("Slide 1", None)], document_id=2)
+    llm = FakeLLM(final="## T\n- Point [S0]")
+    with patch.object(ss, "client", llm):
+        mg.generate_merged_summary([big, small])
+    maps = llm.map_calls()
+    assert maps and all(ss.SOURCE_ONLY_RULE in system for system, _, _ in maps)
+
+
+def test_body_starts_with_a_heading_after_the_sources_list():
+    for final, first in [("- A point [S0]", "## Summary"), ("# Graphs\n- A point [S0]", "## Graphs"),
+                         ("## Graphs\n- A point [S0]", "## Graphs")]:
+        with patch.object(ss, "client", FakeLLM(final=final)):
+            out = mg.generate_merged_summary(mixed_sources())
+        sources, body = out.split("\n\n---\n\n")
+        assert sources.startswith("**Sources**\n\n1. "), "the Sources list stays first"
+        assert body.startswith(first + "\n"), body
+        assert body.rstrip().endswith("- A point (1: p. 1)"), body
+
+
+def test_a_citation_list_at_the_end_is_dropped():
+    final = "## Graphs\n- Graphs are pairs [S0]\n- Qubits hold states\n\n### Sources\n[S0][S2][S3]"
+    with patch.object(ss, "client", FakeLLM(final=final)):
+        out = mg.generate_merged_summary(mixed_sources())
+    body = out.split("\n\n---\n\n")[1]
+    assert body == "## Graphs\n- Graphs are pairs (1: p. 1)\n- Qubits hold states", body
 
 
 def test_long_sources_are_mapped_one_source_at_a_time():

@@ -19,9 +19,12 @@ from app.services.ai.flashcard_service import generate_cited_flashcards
 from app.services.ai.quiz_service import generate_cited_quiz
 from app.services.ai.summary_service import (
     CITATION_RULE,
+    NO_OUTSIDE_FACTS_RULE,
     Citation,
     _final_summary,
     _summarize_labelled_batch,
+    drop_citation_lists,
+    ensure_heading,
     final_input_budget,
     fit_notes,
     plain_inline_math,
@@ -49,16 +52,19 @@ SOURCE_KINDS = {
 MERGED_SYSTEM_PROMPT = (
     "You are an expert study assistant creating one exam revision summary from several sources.\n"
     "Guidelines:\n"
-    "1. Structure with clear Markdown headings and bullet points, organised by topic, not by source.\n"
+    "1. Start with a '## ' heading naming the topic, then structure with Markdown headings and bullet points, "
+    "organised by topic, not by source.\n"
     "2. When sources cover the same idea, combine them into one point and keep the labels of every source it came from.\n"
     "3. Prominently highlight key definitions and essential formulas/equations.\n"
     "4. Note where sources disagree, or where one explains something another leaves out. In your sentences, "
     "call sources 'Source 1', 'Source 2', ... (the numbers in the material's headings); never write the [S0], "
     "[S1], ... labels (or S0, S1, ...) as words in a sentence, they are only for citing.\n"
-    "5. Keep the entire summary concise and strictly under 900 words.\n"
-    "6. Output clean Markdown only. Write formulas in plain text or Unicode (e.g. x₁ + x₂, |V|, v = (x, y)), "
+    "5. " + NO_OUTSIDE_FACTS_RULE + " Never write about what none of the sources explain, define or cover: "
+    "no notes, sections or sentences about gaps or missing information.\n"
+    "6. Keep the entire summary concise and strictly under 900 words.\n"
+    "7. Output clean Markdown only. Write formulas in plain text or Unicode (e.g. x₁ + x₂, |V|, v = (x, y)), "
     "not LaTeX. Do not add a list of sources or a closing remark; the list is added automatically.\n"
-    "7. " + CITATION_RULE + " Keep the labels from the material when you combine or rephrase points."
+    "8. " + CITATION_RULE + " Keep the labels from the material when you combine or rephrase points."
 )
 
 
@@ -167,7 +173,9 @@ def generate_merged_summary(sources: List[MergedSource]) -> str:
     # Many or long sources: combine the notes in rounds until the final call can take them.
     parts = fit_notes(parts, final_input_budget(FINAL_MAX_TOKENS), cite=True)
     summary = _final_summary("\n\n".join(parts), MERGED_SYSTEM_PROMPT, max_tokens=FINAL_MAX_TOKENS)
-    body = plain_inline_math(replace_labels(summary, citations, join_plain=join_by_source))
+    body = ensure_heading(plain_inline_math(
+        replace_labels(drop_citation_lists(summary), citations, join_plain=join_by_source)
+    ))
     return f"{sources_list(sources)}\n\n---\n\n{body}"
 
 
