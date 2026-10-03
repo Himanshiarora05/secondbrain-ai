@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+from app.database.db import get_db
 from app.models.user import User
 from app.services.auth_service import get_current_user
 from app.services.search_service import search_similar_chunks, generate_answer
@@ -8,11 +10,11 @@ router = APIRouter(prefix="/api/v1", tags=["Search"])
 
 
 @router.get("/search")
-def search(query: str = Query(...), user: User = Depends(get_current_user)):
+def search(query: str = Query(...), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
 
     # 🔹 Step 1: Get similar chunks
     # (score, content, doc_name, youtube_timestamp_url, source_type, source_url, location)
-    results = search_similar_chunks(query, user.id)[:3]
+    results = search_similar_chunks(db, query, user.id)[:3]
 
     # 🔹 Step 2: Build clean context (IMPORTANT)
     context = "\n\n".join([r[1] for r in results])

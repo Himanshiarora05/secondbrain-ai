@@ -1,6 +1,6 @@
 """Offline checks that every endpoint needs a session and only ever touches the signed-in
-user's data (the real app via TestClient, in-memory SQLite, a throwaway Chroma; embeddings,
-YouTube and the AI mocked; no network).
+user's data (the real app via TestClient on a throwaway Postgres with pgvector, see
+pg_test_db.py; embeddings, YouTube and the AI mocked; no network).
 
 Run from backend/:  .venv/Scripts/python.exe tests/test_ownership.py
 """
@@ -16,27 +16,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-# Never touch the real database, vector store or model hub. (Set before main is
+# Never touch the real database or model hub. (Set before main is
 # imported: load_dotenv doesn't override variables that are already set.)
 os.environ["DATABASE_URL"] = "postgresql://offline:offline@127.0.0.1:1/offline"
-os.environ["CHROMA_DIR"] = tempfile.mkdtemp(prefix="sb-test-chroma-")
-os.environ["ANONYMIZED_TELEMETRY"] = "False"
 os.environ["HF_HUB_OFFLINE"] = "1"
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 from docx import Document as WordDocument
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 import main
 from app.api import upload
-from app.database.chroma import get_collection
-from app.database.db import Base, get_db
-from app.models import Document
+from app.database.db import get_db
+from app.models import Chunk, ChunkEmbedding, Document
 from app.routes import search as search_route
 from app.services import search_service
+from tests.pg_test_db import fake_embeddings, pg_engine
 
 PASSWORD = "correct horse battery"
 PUBLIC = {("POST", "/api/v1/auth/signup"), ("POST", "/api/v1/auth/login"), ("POST", "/api/v1/auth/logout"),
@@ -47,19 +43,7 @@ PUBLIC = {("POST", "/api/v1/auth/signup"), ("POST", "/api/v1/auth/login"), ("POS
 VIDEO = "https://www.youtube.com/watch?v=abcdefghijk"
 
 
-def fake_embeddings(texts):
-    return [[1.0, float(len(t) % 7), 0.5, 0.25] for t in texts]
-
-
-engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-
-
-@event.listens_for(engine, "connect")
-def _fk_on(conn, _):
-    conn.execute("PRAGMA foreign_keys=ON")
-
-
-Base.metadata.create_all(engine)
+engine = pg_engine()
 Local = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
@@ -128,8 +112,8 @@ def test_every_endpoint_needs_a_session():
 def test_uploads_belong_to_the_uploader():
     db = Local()
     assert {d.id: d.user_id for d in db.query(Document)} == {a1: alice.user_id, a2: alice.user_id, b1: bob.user_id}
-    metas = get_collection().get(where={"document_id": a1}, include=["metadatas"])["metadatas"]
-    assert metas and all(m["user_id"] == alice.user_id for m in metas), metas
+    vectors = db.query(ChunkEmbedding).join(Chunk).filter(Chunk.document_id == a1).count()
+    assert vectors == db.query(Chunk).filter(Chunk.document_id == a1).count() > 0, "every chunk has a vector"
 
 
 def test_each_user_lists_only_their_documents():

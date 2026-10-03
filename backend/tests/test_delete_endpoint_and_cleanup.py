@@ -7,8 +7,7 @@ from fastapi.testclient import TestClient
 from main import app
 from app.database.db import SessionLocal
 from app.models.document import Document
-from app.models.chunk import Chunk
-from app.database.chroma import get_collection
+from app.models.chunk import Chunk, ChunkEmbedding
 
 client = TestClient(app)
 db = SessionLocal()
@@ -41,25 +40,20 @@ assert after_count == before_count - len(target_ids), f"Expected {before_count -
 
 # 4. Verify IDs 9 to 16 are completely intact and healthy
 print("\nVerifying healthy documents (IDs 9-16) are untouched:")
-col = get_collection()
 for hid in range(9, 17):
     doc = db.query(Document).filter(Document.id == hid).first()
     assert doc is not None, f"Healthy doc {hid} missing!"
     chunks_count = len(doc.chunks)
-    chroma_count = len(col.get(where={"document_id": hid})["ids"])
-    print(f"  Healthy Doc {hid}: {doc.filename} | Postgres chunks: {chunks_count} | Chroma vectors: {chroma_count}")
+    vector_count = db.query(ChunkEmbedding).join(Chunk).filter(Chunk.document_id == hid).count()
+    print(f"  Healthy Doc {hid}: {doc.filename} | Postgres chunks: {chunks_count} | search vectors: {vector_count}")
     assert chunks_count == 23, f"Expected 23 chunks for doc {hid}"
-    assert chroma_count == 23, f"Expected 23 chroma vectors for doc {hid}"
+    assert vector_count == 23, f"Expected 23 search vectors for doc {hid}"
 
-# 5. Verify zero orphaned vectors in Chroma for deleted IDs 3-8
-print("\nVerifying zero orphaned Chroma vectors for deleted IDs 3-8:")
-all_chroma_ids = col.get()["ids"]
-for tid in target_ids:
-    by_meta = col.get(where={"document_id": tid})["ids"]
-    by_prefix = [cid for cid in all_chroma_ids if cid.startswith(f"{tid}-")]
-    print(f"  Deleted Doc {tid}: vectors by metadata={len(by_meta)}, vectors by prefix={len(by_prefix)}")
-    assert len(by_meta) == 0, f"Found orphaned vectors by metadata for doc {tid}: {by_meta}"
-    assert len(by_prefix) == 0, f"Found orphaned vectors by prefix for doc {tid}: {by_prefix}"
+# 5. Verify zero orphaned search vectors for deleted IDs 3-8
+print("\nVerifying zero orphaned search vectors for deleted IDs 3-8:")
+orphans = db.query(ChunkEmbedding).outerjoin(Chunk, Chunk.id == ChunkEmbedding.chunk_id).filter(Chunk.id.is_(None)).count()
+print(f"  Vectors without a chunk: {orphans}")
+assert orphans == 0, f"Found {orphans} orphaned vectors"
 
 # 6. Verify 404 on deleting non-existent document
 resp_404 = client.delete("/api/v1/documents/999999")

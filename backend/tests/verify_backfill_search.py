@@ -4,8 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from app.database.db import SessionLocal
-from app.models.chunk import Chunk
-from app.database.chroma import get_collection
+from app.models.chunk import Chunk, ChunkEmbedding
 
 db = SessionLocal()
 c1 = db.query(Chunk).filter(Chunk.document_id == 1).count()
@@ -13,11 +12,10 @@ c2 = db.query(Chunk).filter(Chunk.document_id == 2).count()
 print(f"Doc 1 chunks in DB: {c1}")
 print(f"Doc 2 chunks in DB: {c2}")
 
-col = get_collection()
-v1 = len(col.get(where={"document_id": 1})["ids"])
-v2 = len(col.get(where={"document_id": 2})["ids"])
-print(f"Doc 1 vectors in Chroma: {v1}")
-print(f"Doc 2 vectors in Chroma: {v2}")
+v1 = db.query(ChunkEmbedding).join(Chunk).filter(Chunk.document_id == 1).count()
+v2 = db.query(ChunkEmbedding).join(Chunk).filter(Chunk.document_id == 2).count()
+print(f"Doc 1 search vectors: {v1}")
+print(f"Doc 2 search vectors: {v2}")
 
 from fastapi.testclient import TestClient
 from main import app

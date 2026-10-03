@@ -26,3 +26,5 @@ vector_db/*
 # OS
 .DS_Store
 Thumbs.db
+# fastembed model cache (FASTEMBED_CACHE_PATH)
+.fastembed_cache/

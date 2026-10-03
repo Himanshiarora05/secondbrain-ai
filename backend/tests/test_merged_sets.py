@@ -1,24 +1,21 @@
 """Offline checks for merged sets: create / list / rename / delete, and how they react to deleted documents.
 
 Runs the route functions against an in-memory SQLite database (foreign keys on),
-so cascades and ON DELETE SET NULL really happen. No Postgres, Chroma or network.
+so cascades and ON DELETE SET NULL really happen. No Postgres or network.
 
 Run from backend/:  .venv/Scripts/python.exe tests/test_merged_sets.py
 """
 import json
 import os
 import sys
-import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-# Never touch the real database, vector store or model hub.
+# Never touch the real database or model hub.
 os.environ.setdefault("DATABASE_URL", "postgresql://offline:offline@127.0.0.1:1/offline")
-os.environ["CHROMA_DIR"] = tempfile.mkdtemp(prefix="sb-test-chroma-")
-os.environ["ANONYMIZED_TELEMETRY"] = "False"
 os.environ["HF_HUB_OFFLINE"] = "1"
 
 from fastapi import HTTPException

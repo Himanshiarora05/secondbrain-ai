@@ -5,7 +5,6 @@ Run from backend/:  .venv/Scripts/python.exe tests/test_youtube_duplicates.py
 import asyncio
 import os
 import sys
-import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -13,10 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-# Never touch the real database, vector store or model hub.
+# Never touch the real database or model hub.
 os.environ.setdefault("DATABASE_URL", "postgresql://offline:offline@127.0.0.1:1/offline")
-os.environ["CHROMA_DIR"] = tempfile.mkdtemp(prefix="sb-test-chroma-")
-os.environ["ANONYMIZED_TELEMETRY"] = "False"
 os.environ["HF_HUB_OFFLINE"] = "1"
 
 from fastapi import HTTPException

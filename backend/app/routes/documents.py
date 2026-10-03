@@ -5,7 +5,6 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.database.db import get_db
-from app.database.chroma import get_collection
 from app.models.document import Document
 from app.models.chunk import Chunk
 from app.models.user import User
@@ -64,9 +63,8 @@ class RenameRequest(BaseModel):
 def rename_document(
     document_id: int, body: RenameRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user),
 ):
-    """Change a document's display name. Search results show the name stored in
-    Chroma metadata, so the document's vectors are updated too: Chroma first,
-    then the database, and Chroma is put back if the database write fails."""
+    """Change a document's display name. Search results read the name from the
+    document row, so nothing else needs updating."""
     name = " ".join(body.filename.split())
     if not name:
         raise HTTPException(status_code=400, detail="The name can't be empty.")
@@ -77,21 +75,11 @@ def rename_document(
     if name == doc.filename:
         return {"id": doc.id, "filename": doc.filename}
 
-    collection = get_collection()
-    stored = collection.get(where={"document_id": document_id}, include=["metadatas"])
-    ids, old_metadatas = stored["ids"], stored["metadatas"]
     try:
-        if ids:
-            collection.update(ids=ids, metadatas=[{**m, "filename": name} for m in old_metadatas])
         doc.filename = name
         db.commit()
     except Exception as e:
         db.rollback()
-        if ids:
-            try:
-                collection.update(ids=ids, metadatas=old_metadatas)
-            except Exception:
-                logger.error(f"Could not restore search names for document {document_id}", exc_info=True)
         logger.error(f"Failed to rename document {document_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Couldn't rename the document. Please try again.")
 
@@ -105,29 +93,11 @@ def delete_document(document_id: int, db: Session = Depends(get_db), user: User 
     file_id = doc.file_id
     filename = doc.filename
 
-    # 1. Collect all chunk IDs and chroma IDs before deleting chunk rows
-    chunks = db.query(Chunk).filter(Chunk.document_id == document_id).all()
-    chroma_ids = [c.chroma_id for c in chunks if c.chroma_id]
-
-    # 2. Delete vectors from Chroma collection
-    collection = get_collection()
-    if chroma_ids:
-        try:
-            collection.delete(ids=chroma_ids)
-        except Exception as e:
-            logger.warning(f"Error deleting Chroma IDs {chroma_ids} for document {document_id}: {e}")
-
-    # Fallback/safety delete by metadata where document_id == document_id
-    try:
-        collection.delete(where={"document_id": document_id})
-    except Exception as e:
-        logger.warning(f"Error deleting Chroma vectors with document_id={document_id}: {e}")
-
-    # 3. Delete Document from PostgreSQL (cascade delete removes chunks, summary, flashcards)
+    # 1. Delete the Document (cascade removes its chunks, their search vectors, summary, flashcards)
     db.delete(doc)
     db.commit()
 
-    # 4. Remove physical file from uploads/ if it exists
+    # 2. Remove physical file from uploads/ if it exists
     if file_id:
         for f in UPLOAD_DIR.glob(f"{file_id}.*"):
             try:

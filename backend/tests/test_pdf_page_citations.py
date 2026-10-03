@@ -14,11 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-# Never touch the real database, vector store or model hub.
+# Never touch the real database or model hub.
 os.environ.setdefault("DATABASE_URL", "postgresql://offline:offline@127.0.0.1:1/offline")
 os.environ.setdefault("OPENROUTER_API_KEY", "offline-test-key")
-os.environ["CHROMA_DIR"] = tempfile.mkdtemp(prefix="sb-test-chroma-")
-os.environ["ANONYMIZED_TELEMETRY"] = "False"
 os.environ["HF_HUB_OFFLINE"] = "1"
 
 import fitz
@@ -128,30 +126,24 @@ def test_upload_pdf_stores_page_ranges():
     assert "P1 sentence 0" in kw["content"] and kw["source_type"] == "pdf"
 
 
-def test_store_writes_pages_to_postgres_and_chroma():
+def _stored_doc(chunks, **kw):
+    """Run the upload helper on a mocked DB; returns the Document it added."""
     db = MagicMock()
-    added = []
-    db.add_all.side_effect = added.extend
-    collection = MagicMock()
-    with patch.object(upload, "get_embeddings", return_value=[[0.0], [0.0]]), \
-         patch.object(upload, "get_collection", return_value=collection):
-        upload._store_document_and_chunks(db=db, file_id="f", filename="notes.pdf", content="a b",
-                                          chunks=["a", "b"], source_type="pdf", chunk_pages=[(1, 1), (1, 2)])
-    assert [(c.page_start, c.page_end) for c in added] == [(1, 1), (1, 2)]
-    metas = collection.add.call_args.kwargs["metadatas"]
-    assert [(m["page_start"], m["page_end"]) for m in metas] == [(1, 1), (1, 2)]
+    with patch.object(upload, "get_embeddings", side_effect=lambda texts: [[0.5] * 384 for _ in texts]):
+        upload._store_document_and_chunks(db=db, file_id="f", content=" ".join(chunks), chunks=chunks, **kw)
+    db.commit.assert_called_once()
+    return db.add.call_args.args[0]
+
+
+def test_store_writes_pages_and_vectors_to_postgres():
+    doc = _stored_doc(["a", "b"], filename="notes.pdf", source_type="pdf", chunk_pages=[(1, 1), (1, 2)])
+    assert [(c.content, c.page_start, c.page_end) for c in doc.chunks] == [("a", 1, 1), ("b", 1, 2)]
+    assert all(c.embedding is not None and len(c.embedding.embedding) == 384 for c in doc.chunks)
 
 
 def test_store_without_pages_leaves_them_empty():
-    db = MagicMock()
-    added = []
-    db.add_all.side_effect = added.extend
-    collection = MagicMock()
-    with patch.object(upload, "get_embeddings", return_value=[[0.0]]), \
-         patch.object(upload, "get_collection", return_value=collection):
-        upload._store_document_and_chunks(db=db, file_id="f", filename="n.docx", content="a", chunks=["a"], source_type="docx")
-    assert (added[0].page_start, added[0].page_end) == (None, None)
-    assert "page_start" not in collection.add.call_args.kwargs["metadatas"][0]
+    doc = _stored_doc(["a"], filename="n.docx", source_type="docx")
+    assert (doc.chunks[0].page_start, doc.chunks[0].page_end) == (None, None)
 
 
 # ─── Stage 2: citations and flashcards ───
@@ -330,28 +322,29 @@ def test_summary_route_picks_cited_or_plain_summary():
 # ─── Stage 4: search ───
 
 def test_search_matches_carry_a_location():
+    from types import SimpleNamespace as NS
     from app.services import search_service
     from app.routes import search as search_route
-    collection = MagicMock()
-    collection.query.return_value = {
-        "ids": [["1-0", "2-0", "3-0", "4-0"]],
-        "documents": [["pdf text", "old pdf text", "video text", "web text"]],
-        "metadatas": [[
-            {"filename": "notes.pdf", "source_type": "pdf", "page_start": 3, "page_end": 4},
-            {"filename": "old.pdf", "source_type": "pdf"},                      # uploaded before page tracking
-            {"filename": "YouTube: abcdefghijk", "source_type": "youtube",
-             "source_url": "https://www.youtube.com/watch?v=abcdefghijk", "start_seconds": 46},
-            {"filename": "Page", "source_type": "website", "source_url": "https://example.com/a"},
-        ]],
-        "distances": [[0.1, 0.2, 0.3, 0.4]],
-    }
-    with patch.object(search_service, "get_collection", return_value=collection), \
+    rows = [
+        (NS(content="pdf text", page_start=3, page_end=4, start_seconds=None),
+         NS(filename="notes.pdf", source_type="pdf", source_url=None), 0.1),
+        (NS(content="old pdf text", page_start=None, page_end=None, start_seconds=None),   # before page tracking
+         NS(filename="old.pdf", source_type="pdf", source_url=None), 0.2),
+        (NS(content="video text", page_start=None, page_end=None, start_seconds=46),
+         NS(filename="YouTube: abcdefghijk", source_type="youtube",
+            source_url="https://www.youtube.com/watch?v=abcdefghijk"), 0.3),
+        (NS(content="web text", page_start=None, page_end=None, start_seconds=None),
+         NS(filename="Page", source_type="website", source_url="https://example.com/a"), 0.4),
+    ]
+    db = MagicMock()
+    with patch.object(search_service, "nearest_chunks", return_value=rows) as nearest, \
          patch.object(search_service, "get_embedding", return_value=[0.0]):
-        results = search_service.search_similar_chunks("q", TEST_USER.id)
-        assert collection.query.call_args.kwargs["where"] == {"user_id": TEST_USER.id}, "only the user's chunks"
+        results = search_service.search_similar_chunks(db, "q", TEST_USER.id)
+        assert nearest.call_args.args[2] == TEST_USER.id, "only the user's chunks"
         assert [r[6] for r in results] == ["pp. 3–4", None, "00:46", None]
+        assert [round(r[0], 2) for r in results] == [0.9, 0.8, 0.7, 0.6]
         with patch.object(search_route, "generate_answer", return_value="An answer."):
-            response = search_route.search(query="q", user=TEST_USER)
+            response = search_route.search(query="q", db=db, user=TEST_USER)
     assert [m["location"] for m in response["top_matches"]] == ["pp. 3–4", None, "00:46"]
 
 
@@ -367,7 +360,7 @@ def _reindex_module():
 
 
 def _old_chunks(n, pages=None):
-    return [MagicMock(id=i, chroma_id=f"7-{i}", page_start=pages, page_end=pages) for i in range(n)]
+    return [MagicMock(id=i, page_start=pages, page_end=pages) for i in range(n)]
 
 
 def _db_with_chunks(chunks):
@@ -416,35 +409,12 @@ def test_reindex_apply_swaps_chunks_and_vectors():
     db, q = _db_with_chunks(_old_chunks(3))
     added = []
     db.add_all.side_effect = added.extend
-    collection = MagicMock()
-    collection.get.return_value = {"ids": ["7-0"], "embeddings": [[1.0]], "documents": ["x"], "metadatas": [{}]}
-    r.apply_document(db, collection, _pdf_doc(), NEW, embed=lambda texts: [[0.0]] * len(texts))
-    q.filter.return_value.delete.assert_called_once()
-    assert [(c.content, c.page_start, c.page_end, c.chroma_id) for c in added] == [("a", 1, 1, "7-0"), ("b", 1, 2, "7-1")]
-    collection.delete.assert_called_once_with(ids=["7-0", "7-1", "7-2"])
-    kw = collection.add.call_args.kwargs
-    assert kw["ids"] == ["7-0", "7-1"] and [(m["page_start"], m["page_end"]) for m in kw["metadatas"]] == [(1, 1), (1, 2)]
+    r.apply_document(db, _pdf_doc(), NEW, embed=lambda texts: [[0.5] * 384] * len(texts))
+    q.filter.return_value.delete.assert_called_once()  # old chunks; their vectors cascade
+    assert [(c.content, c.page_start, c.page_end, c.document_id) for c in added] == [("a", 1, 1, 7), ("b", 1, 2, 7)]
+    assert all(len(c.embedding.embedding) == 384 for c in added)
     db.commit.assert_called_once()
     db.rollback.assert_not_called()
-
-
-def test_reindex_keeps_the_document_owner_on_every_vector():
-    # Search filters Chroma on user_id: without it, a re-indexed PDF vanishes from its owner's search.
-    r = _reindex_module()
-    db, _ = _db_with_chunks(_old_chunks(2))
-    collection = MagicMock()
-    collection.get.return_value = {"ids": [], "embeddings": [], "documents": [], "metadatas": []}
-    r.apply_document(db, collection, _pdf_doc(user_id=42), NEW, embed=lambda texts: [[0.0]] * len(texts))
-    metas = collection.add.call_args.kwargs["metadatas"]
-    assert len(metas) == len(NEW) and all(m["user_id"] == 42 for m in metas), metas
-
-    # A document with no owner yet (before accounts) gets no user_id, like at upload;
-    # assign_documents_to_user.py sets it later.
-    db, _ = _db_with_chunks(_old_chunks(2))
-    collection = MagicMock()
-    collection.get.return_value = {"ids": [], "embeddings": [], "documents": [], "metadatas": []}
-    r.apply_document(db, collection, _pdf_doc(user_id=None), NEW, embed=lambda texts: [[0.0]] * len(texts))
-    assert all("user_id" not in m for m in collection.add.call_args.kwargs["metadatas"])
 
 
 def test_reindex_skips_pdfs_read_by_ocr():
@@ -457,40 +427,33 @@ def test_reindex_skips_pdfs_read_by_ocr():
     assert (report["action"], new) == ("skip", None) and "OCR" in report["reason"], report
 
 
-def test_reindex_restores_everything_if_chroma_fails():
+def test_reindex_rolls_back_if_the_database_write_fails():
     r = _reindex_module()
     db, _ = _db_with_chunks(_old_chunks(2))
-    collection = MagicMock()
-    backup = {"ids": ["7-0", "7-1"], "embeddings": [[1.0], [2.0]], "documents": ["x", "y"], "metadatas": [{}, {}]}
-    collection.get.return_value = backup
-    collection.add.side_effect = [RuntimeError("chroma down"), None]  # new vectors fail, restore works
+    db.commit.side_effect = RuntimeError("connection lost")
     try:
-        r.apply_document(db, collection, _pdf_doc(), NEW, embed=lambda texts: [[0.0]] * len(texts))
+        r.apply_document(db, _pdf_doc(), NEW, embed=lambda texts: [[0.5] * 384] * len(texts))
     except RuntimeError:
         pass
     else:
         raise AssertionError("the failure should be reported")
     db.rollback.assert_called_once()
-    db.commit.assert_not_called()
-    restored = collection.add.call_args_list[-1].kwargs
-    assert restored["ids"] == backup["ids"] and restored["embeddings"] == backup["embeddings"]
 
 
 def test_reindex_embedding_failure_changes_nothing():
     r = _reindex_module()
     db, q = _db_with_chunks(_old_chunks(2))
-    collection = MagicMock()
 
     def embed(_texts):
         raise RuntimeError("model unavailable")
 
     try:
-        r.apply_document(db, collection, _pdf_doc(), NEW, embed=embed)
+        r.apply_document(db, _pdf_doc(), NEW, embed=embed)
     except RuntimeError:
         pass
     q.filter.return_value.delete.assert_not_called()
-    collection.delete.assert_not_called()
-    collection.add.assert_not_called()
+    db.add_all.assert_not_called()
+    db.commit.assert_not_called()
 
 
 if __name__ == "__main__":
