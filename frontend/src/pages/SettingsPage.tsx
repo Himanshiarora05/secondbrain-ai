@@ -24,15 +24,20 @@ export function SettingsPage() {
     }
   }
 
+  // System diagnostics are for local development only; production shows just the account.
+  const showDevInfo = import.meta.env.DEV
+
   useEffect(() => {
-    checkHealth()
-  }, [])
+    if (showDevInfo) checkHealth()
+  }, [showDevInfo])
 
   return (
     <div className="w-full max-w-4xl mx-auto animate-fade-in pb-16">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-white tracking-tight">System & Settings</h1>
-        <p className="text-[var(--text-secondary)] text-sm mt-1">Real-time backend health, connection diagnostics, and system parameters.</p>
+        <h1 className="text-3xl font-bold text-white tracking-tight">{showDevInfo ? 'System & Settings' : 'Settings'}</h1>
+        <p className="text-[var(--text-secondary)] text-sm mt-1">
+          {showDevInfo ? 'Your account, plus backend health and API details (local development only).' : 'Your account.'}
+        </p>
       </div>
 
       <div className="flex flex-col gap-6 max-w-3xl">
@@ -59,6 +64,7 @@ export function SettingsPage() {
           </div>
         )}
 
+        {showDevInfo && (<>
         {/* About Card */}
         <div className="bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-2xl p-6 shadow-sm">
           <div className="flex items-center gap-3 mb-5">
@@ -81,7 +87,7 @@ export function SettingsPage() {
             </div>
             <div className="p-3.5 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-primary)]">
               <span className="text-[var(--text-tertiary)] text-[11px] font-mono uppercase tracking-wider block mb-1">Vector Index</span>
-              <span className="text-white font-semibold">Chroma</span>
+              <span className="text-white font-semibold">pgvector</span>
             </div>
             <div className="p-3.5 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-primary)]">
               <span className="text-[var(--text-tertiary)] text-[11px] font-mono uppercase tracking-wider block mb-1">File Limit</span>
@@ -136,10 +142,10 @@ export function SettingsPage() {
           ) : null}
         </div>
 
-        {/* Endpoints Reference */}
+        {/* Developer info: API endpoints */}
         <div className="bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-2xl p-6 shadow-sm">
-          <h2 className="text-base font-semibold text-white mb-1">Supported Endpoints</h2>
-          <p className="text-xs text-[var(--text-secondary)] mb-4">Ingestion, search, and study features backed by real API data</p>
+          <h2 className="text-base font-semibold text-white mb-1">Developer info</h2>
+          <p className="text-xs text-[var(--text-secondary)] mb-4">Backend API endpoints for ingestion, search, study, review and accounts</p>
           <div className="flex flex-col divide-y divide-[var(--border-primary)] font-mono text-xs">
             {[
               ['POST', '/api/v1/upload/pdf', 'PDF document ingestion with sentence chunking'],
@@ -147,12 +153,29 @@ export function SettingsPage() {
               ['POST', '/api/v1/upload/docx', 'Word document parsing with heading hierarchy'],
               ['POST', '/api/v1/upload/images', 'Photos and screenshots read by AI text recognition, one page per image'],
               ['POST', '/api/v1/upload/youtube', 'YouTube transcript fetch with timestamp links'],
-              ['GET', '/api/v1/search?query=…', 'Chroma vector search + AI generation'],
+              ['POST', '/api/v1/upload/website', 'Web page article extraction with SSRF-safe fetching'],
+              ['GET', '/api/v1/search?query=…', 'pgvector semantic search + AI answer'],
               ['POST', '/api/v1/documents/:id/summary', 'Map-reduce exam revision summary generation'],
               ['POST', '/api/v1/documents/:id/flashcards', 'Strict JSON flashcard deck generation'],
               ['POST', '/api/v1/documents/:id/quiz', 'Cited multiple-choice quiz generation, with saved scores'],
+              ['POST', '/api/v1/documents/:id/quiz/:quizId/attempts', 'Submit quiz answers, scored on the server'],
+              ['POST', '/api/v1/merged-sets', 'Combine 2–8 documents into one merged study set'],
+              ['GET', '/api/v1/merged-sets', 'List merged sets'],
+              ['POST', '/api/v1/merged-sets/:id/summary', 'Cross-source summary citing each document'],
+              ['POST', '/api/v1/merged-sets/:id/flashcards', 'Flashcards shared across the set’s sources'],
+              ['POST', '/api/v1/merged-sets/:id/quiz', 'Multiple-choice quiz over the whole set'],
+              ['POST', '/api/v1/merged-sets/:id/quiz/:quizId/attempts', 'Submit answers for a merged set quiz'],
+              ['GET', '/api/v1/review/due?today=…', 'Flashcards due today (SM-2 spaced repetition)'],
+              ['GET', '/api/v1/review/due/count?today=…', 'Due and new card counts, without the cards'],
+              ['POST', '/api/v1/review/cards/:kind/:cardId', 'Rate a card again / good / easy (kind: document or merged)'],
+              ['POST', '/api/v1/auth/signup', 'Create an account and start a session'],
+              ['POST', '/api/v1/auth/login', 'Email and password login (HttpOnly session cookie)'],
+              ['POST', '/api/v1/auth/logout', 'End the current session'],
+              ['GET', '/api/v1/auth/me', 'The signed-in user'],
+              ['POST', '/api/v1/auth/password-reset/request', 'Email a password reset link'],
+              ['POST', '/api/v1/auth/password-reset/confirm', 'Set a new password with a reset token'],
             ].map(([method, path, desc]) => (
-              <div key={path} className="flex flex-col sm:flex-row sm:items-center gap-2 py-3">
+              <div key={`${method} ${path}`} className="flex flex-col sm:flex-row sm:items-center gap-2 py-3">
                 <span className={`w-14 text-center px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
                   method === 'POST'
                     ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
@@ -160,12 +183,13 @@ export function SettingsPage() {
                 }`}>
                   {method}
                 </span>
-                <span className="text-white text-xs font-semibold sm:w-64 truncate">{path}</span>
+                <span className="text-white text-xs font-semibold sm:w-80 sm:flex-shrink-0 break-all">{path}</span>
                 <span className="text-[var(--text-tertiary)] font-sans text-xs">{desc}</span>
               </div>
             ))}
           </div>
         </div>
+        </>)}
 
       </div>
     </div>
