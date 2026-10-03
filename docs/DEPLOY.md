@@ -30,7 +30,7 @@ search, not at startup, and ONNX Runtime's memory arena is off. Measured on
 Windows: about 150 MB after startup and about 330 MB with the model loaded
 and embedding, well inside 512 MB.
 
-Do the steps in order: Neon → Render → Vercel → back to Render for `APP_BASE_URL`.
+Do the steps in order: Neon → Render → Vercel.
 
 ---
 
@@ -131,9 +131,10 @@ Steps:
    |---|---|
    | `DATABASE_URL` | the Neon connection string from step 1 |
    | `OPENROUTER_API_KEY` | your key from <https://openrouter.ai/keys> |
-   | `APP_BASE_URL` | your Vercel URL, e.g. `https://secondbrain.vercel.app` (used in password reset links; if you don't know it yet, put a placeholder and fix it in step 4) |
 
-   Already set by the Blueprint: `SESSION_COOKIE_SECURE=true` (Vercel serves
+   Already set by the Blueprint: `APP_BASE_URL=https://secondbrain-ai-one.vercel.app`
+   (the Vercel URL, used in password reset links; if your Vercel URL is
+   different, change it in `render.yaml` and push), `SESSION_COOKIE_SECURE=true` (Vercel serves
    HTTPS), `ALLOW_SIGNUP=true`, `EMBEDDING_THREADS=1`, `FASTEMBED_CACHE_PATH`,
    `PYTHON_VERSION`, and the free AI models `OPENROUTER_MODEL=nvidia/nemotron-3-super-120b-a12b:free`
    and `OCR_MODEL=qwen/qwen3.8-27b:free` (change them in `render.yaml` and push
@@ -170,16 +171,17 @@ Every push to `main` redeploys the backend (`autoDeploy: true`).
    - **Root Directory:** `frontend` (click **Edit** next to it - important)
    - **Framework Preset:** Vite (detected); build `npm run build`, output `dist`
    - No environment variables are needed.
-4. **Deploy** and note the production URL, e.g. `https://secondbrain.vercel.app`.
+4. **Deploy** and note the production URL. It should be
+   `https://secondbrain-ai-one.vercel.app`, the `APP_BASE_URL` in `render.yaml`;
+   if it isn't, update `APP_BASE_URL` there (no trailing slash) and push.
    Every push to `main` redeploys it.
 
 ## 4. Finish
 
-1. On Render, set `APP_BASE_URL` to the Vercel URL (no trailing slash).
-2. Open the Vercel URL, sign up (or log in with an account you brought over),
+1. Open the Vercel URL, sign up (or log in with an account you brought over),
    upload a small PDF, and run a search. Reload the page and check you're still
    logged in.
-3. If the app is only for you, set `ALLOW_SIGNUP=false` on Render.
+2. If the app is only for you, set `ALLOW_SIGNUP=false` on Render.
 
 ---
 
@@ -219,4 +221,4 @@ Every push to `main` redeploys the backend (`autoDeploy: true`).
 | `/api/...` on Vercel returns 404 or Vercel's error page | `frontend/vercel.json` still has the placeholder, or the Render URL is wrong |
 | Refreshing `/library` on Vercel gives 404 | the Vercel project's root directory isn't `frontend`, so `vercel.json` isn't used |
 | Search finds nothing for documents you moved from local | the vectors weren't copied: run `scripts/migrate_chroma_to_pgvector.py` against Neon (step 1a) |
-| Password reset link points to localhost | set `APP_BASE_URL` on Render |
+| Password reset link points to localhost or the wrong site | `APP_BASE_URL` in `render.yaml` doesn't match the Vercel URL |
