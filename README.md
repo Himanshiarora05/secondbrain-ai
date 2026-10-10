@@ -43,15 +43,13 @@ Vercel rewrites `/api/*` to the Render backend, so the session cookie stays same
 
 ## Screenshots
 
-<!-- Add images to docs/screenshots/ and replace each placeholder below, e.g. ![Library](docs/screenshots/library.png) -->
-
 | Library | Cited summary |
 |---|---|
-| _Screenshot coming soon_ | _Screenshot coming soon_ |
+| ![Library](docs/screenshots/library.png) | ![Cited summary](docs/screenshots/summary.png) |
 
 | Flashcards | Quiz |
 |---|---|
-| _Screenshot coming soon_ | _Screenshot coming soon_ |
+| ![Flashcards](docs/screenshots/flashcards.png) | ![Quiz](docs/screenshots/quiz.png) |
 
 ## Feature details
 
