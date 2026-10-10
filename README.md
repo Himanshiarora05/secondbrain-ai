@@ -256,4 +256,4 @@ Only these are safe to run anywhere: they're fully offline (network, database, a
 
 The other scripts run against your **real** database, vector index, and OpenRouter account, and some delete data. Read a script before running it.
 
-`CLAUDE.md` has more detail on the architecture and conventions.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has more detail on the architecture and conventions.

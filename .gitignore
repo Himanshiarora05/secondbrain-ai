@@ -13,3 +13,6 @@ backend/tests/verification_report.json
 
 # Editor
 .vscode/
+
+# Local assistant instructions (kept on disk, not in the repo)
+CLAUDE.md
